@@ -16,11 +16,11 @@ git clone https://huggingface.co/datasets/retarget/retarget_example example_data
 ```
 
 This downloads `example_datasets/` containing:
-- `raw/maniptrans/HO-Tracker/` — 16 trajectory demos (8 left-hand, 8 right-hand)
-- `raw/maniptrans/assets/` — pre-trained base imitator checkpoints
-- `raw/maniptrans/rl_runs/` — 16 trained RL baseline checkpoints
-- `raw/maniptrans/retargeting/` — optional retargeting initialization
-- `processed/maniptrans/` — pre-computed rollouts, videos, and metrics (160 runs)
+- `raw/maniptrans/HO-Tracker/` --- 16 trajectory demos (8 left-hand, 8 right-hand)
+- `raw/maniptrans/assets/` --- pre-trained base imitator checkpoints
+- `raw/maniptrans/rl_runs/` --- 16 trained RL baseline checkpoints
+- `raw/maniptrans/retargeting/` --- optional retargeting initialization
+- `processed/maniptrans/` --- pre-computed rollouts, videos, and metrics (160 runs)
 
 ### 2. Create Data Symlink
 
@@ -33,23 +33,39 @@ ln -sf example_datasets/raw/maniptrans data
 
 ### 3. Install Dependencies
 
-Requires Python 3.8 + PyTorch 1.13 + IsaacGym (older than SPIDER's default Python 3.12+):
+Requires Python 3.8 + PyTorch 1.13.1 + IsaacGym (older than SPIDER's default Python 3.12+):
 
 ```bash
 # Create conda environment
 conda create -n maniptrans python=3.8
 conda activate maniptrans
 
+# Install PyTorch 1.13.1 with CUDA 11.7
+pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+
 # Install IsaacGym (requires NVIDIA GPU)
 cd /path/to/isaacgym/python && pip install -e .
 
-# Install HO-Tracker-Baseline
-cd /path/to/HO-Tracker-Baseline && pip install -e .
+# Install pytorch3d (prebuilt wheel for py38 + cu117 + pytorch 1.13.1)
+pip install pytorch3d==0.7.3 -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py38_cu117_pyt1131/download.html
+
+# Install additional dependencies
+pip install git+https://github.com/otaheri/chamfer_distance.git
+pip install git+https://github.com/otaheri/bps_torch.git
+pip install git+https://github.com/lixiny/manotorch.git
+pip install numpy==1.23.5 gym==0.23.1 opencv-python-headless scikit-learn smplx trimesh
+
+# Clone and install HO-Tracker-Baseline
+cd /path/to
+git clone https://github.com/KailinLi/HO-Tracker-Baseline.git
+cd HO-Tracker-Baseline
+touch requirements.txt  # Create empty file (prevents pip install error)
+pip install -e .
 
 # Install SPIDER (minimal, no-deps to avoid conflicts)
 cd /path/to/spider
 pip install --ignore-requires-python --no-deps -e .
-pip install loguru mujoco
+pip install loguru mujoco hydra-core omegaconf imageio[ffmpeg]
 ```
 
 ### 4. Set Up HO-Tracker-Baseline Data
@@ -70,7 +86,23 @@ ln -sf /path/to/spider/example_datasets/raw/maniptrans/retargeting/HO-Tracker da
 cp /path/to/spider/example_datasets/raw/maniptrans/assets/imitator_*.pth assets/
 ```
 
-### 5. Run SPIDER
+### 5. Patch HO-Tracker-Baseline for Compatibility
+
+The `dexhandimitator` module may fail to import in some environments. Patch `maniptrans_envs/lib/envs/tasks/__init__.py` to make it optional:
+
+```python
+# Replace:
+from .dexhandimitator import DexHandImitatorRHEnv, DexHandImitatorLHEnv
+
+# With:
+try:
+    from .dexhandimitator import DexHandImitatorRHEnv, DexHandImitatorLHEnv
+except ImportError:
+    DexHandImitatorRHEnv = None
+    DexHandImitatorLHEnv = None
+```
+
+### 6. Run SPIDER
 
 ```bash
 conda activate maniptrans
@@ -91,9 +123,9 @@ python examples/run_maniptrans.py max_num_iterations=16
 ```
 
 Output is saved to `example_datasets/processed/maniptrans/inspire/{side}/{task}/{data_id}/`:
-- `rollout_isaac.npz` — trajectory data
-- `rollout_isaac.mp4` — video
-- `metrics_isaac.json` — evaluation metrics
+- `rollout_isaac.npz` --- trajectory data
+- `rollout_isaac.mp4` --- video (when `save_video=true`)
+- `metrics_isaac.json` --- evaluation metrics
 
 ## Available Trajectories
 
@@ -162,11 +194,27 @@ python spider/postprocess/evaluate_maniptrans.py
 python spider/postprocess/evaluate_maniptrans.py --multiseed
 ```
 
+## Common Issues
+
+1. **DexHandFactory registration failure** (`KeyError: 'inspire_rh'`): This is a circular import issue. SPIDER includes a fix in `spider/simulators/maniptrans.py` that lazily triggers hand auto-registration. Ensure you are using the latest SPIDER code.
+
+2. **`dexhandimitator` import error**: Apply the patch in step 5 above to make this import optional.
+
+3. **pytorch3d installation**: Use the prebuilt wheel for your PyTorch/CUDA combination. Building from source requires matching CUDA toolkit version (not just driver) and compatible GCC. The command in step 3 uses prebuilt wheels for py38 + cu117 + pytorch 1.13.1.
+
+4. **`np.float` deprecation** (`AttributeError: module 'numpy' has no attribute 'float'`): Install `numpy==1.23.5` which still supports the deprecated aliases.
+
+5. **Missing `requirements.txt` in HO-Tracker-Baseline**: Run `touch requirements.txt` in the HO-Tracker-Baseline root before `pip install -e .`.
+
+6. **`imageio[ffmpeg]` required for video**: Install with `pip install imageio[ffmpeg]` for video recording support.
+
+7. **`LD_LIBRARY_PATH` must include conda env lib**: Without this, IsaacGym may fail to find shared libraries. Set `export LD_LIBRARY_PATH="/path/to/miniconda3/envs/maniptrans/lib:${LD_LIBRARY_PATH:-}"`.
+
 ## Important Notes
 
 ### Python 3.8 Compatibility
 
-ManipTrans requires Python 3.8 + PyTorch 1.13 + IsaacGym. SPIDER handles this via:
+ManipTrans requires Python 3.8 + PyTorch 1.13.1 + IsaacGym. SPIDER handles this via:
 - `from __future__ import annotations` in `spider/config.py` (for `tuple[float, float]` syntax)
 - `hasattr(torch, "compile")` guards in `spider/optimizers/sampling.py`
 

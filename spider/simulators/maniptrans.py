@@ -34,6 +34,27 @@ from maniptrans_envs.lib.envs.tasks.dexhandmanip_sh import (
     quat_to_angle_axis,
 )
 from maniptrans_envs.lib.envs.dexhands.factory import DexHandFactory
+
+
+def _ensure_hands_registered():
+    """Trigger dexhand auto-registration if it hasn't happened yet.
+
+    Due to circular imports at module init time, the auto-registration in
+    ``dexhands/__init__.py`` may not have completed when this module is first
+    loaded.  Calling this function lazily (at setup_env time) avoids the issue.
+    """
+    if not DexHandFactory._registry:
+        import importlib
+        import os
+
+        dexhands_dir = os.path.dirname(
+            importlib.import_module(
+                "maniptrans_envs.lib.envs.dexhands"
+            ).__file__
+        )
+        DexHandFactory.auto_register_hands(
+            dexhands_dir, "maniptrans_envs.lib.envs.dexhands"
+        )
 from main.dataset.transform import aa_to_quat, rotmat_to_quat
 
 try:
@@ -263,6 +284,7 @@ def _get_base_action(env):
 
 def _build_task_config(config: Config) -> dict:
     """Build the IsaacGym task config dict from SPIDER Config."""
+    _ensure_hands_registered()
     side = config.embodiment_type  # "right", "left", or "bimanual"
     dexhand_name = config.robot_type  # "inspire", "shadow", "allegro", ...
 
