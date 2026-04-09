@@ -1,0 +1,1 @@
+uv run examples/run_mjwp.py dataset_dir=example_datasets dataset_name=oakink robot_type=xhand embodiment_type=bimanual task=pour_tube data_id=0 show_viewer=false save_video=false save_info=true save_config=true viewer= output_dir=outputs/multi_task/oakink_pour_tube/cma_with_ref init_ctrl_mode=reference contact_guidance=true contact_rew_scale=0.0 optimizer_type=cma
