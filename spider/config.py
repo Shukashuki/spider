@@ -137,6 +137,11 @@ class Config:
     vel_rew_scale: float = 0.0001
     terminal_rew_scale: float = 1.0
     contact_rew_scale: float = 0.0
+    # Ablation settings
+    init_ctrl_mode: str = "reference"  # "reference", "zero", or "random"
+    optimizer_type: str = "mppi"  # "mppi" or "cma"
+    cma_sigma0: float = 0.3
+    cma_mu_ratio: float = 0.5
 
     # === VISUALIZATION CONFIGURATION ===
     show_viewer: bool = True
@@ -163,6 +168,7 @@ class Config:
     right_pos_ctrl_ids: list = field(default_factory=list)
     left_pos_ctrl_ids: list = field(default_factory=list)
     contact_len: int = 0
+    contact_site_ids: list = field(default_factory=list)
 
     # === AUTOMATICALLY SET PROPERTIES ===
     # Computed timesteps
@@ -485,8 +491,9 @@ def process_config(config: Config):
     # get noise scale
     config = compute_noise_schedule(config)
 
-    # output dir: write artifacts alongside the trial
-    config.output_dir = processed_dir_robot
+    # output dir: use CLI override if provided, else default to dataset dir
+    if not config.output_dir:
+        config.output_dir = processed_dir_robot
     os.makedirs(config.output_dir, exist_ok=True)
 
     # read task info
@@ -511,8 +518,9 @@ def process_config(config: Config):
                 f"overriding contact_site_ids: {config.contact_site_ids} from task_info.json"
             )
         else:
-            raise ValueError(
-                "contact_site_ids not found in task_info.json while contact_rew_scale > 0.0"
+            loguru.logger.warning(
+                "contact_site_ids not found in task_info.json while contact_rew_scale > 0.0; "
+                "contact reward will use reference contact data if available"
             )
 
     # set seed

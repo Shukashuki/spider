@@ -41,6 +41,10 @@ from spider.optimizers.sampling import (
     make_optimize_once_fn,
     make_rollout_fn,
 )
+from spider.optimizers.cma import (
+    make_optimize_fn_cma,
+    make_optimize_once_fn_cma,
+)
 from spider.postprocess.get_success_rate import compute_object_tracking_error
 from spider.simulators.mjwp import (
     compute_contact_point_delta,
@@ -358,8 +362,13 @@ def main(config: Config):
         load_env_params,
         copy_sample_state,
     )
-    optimize_once = make_optimize_once_fn(rollout)
-    optimize = make_optimize_fn(optimize_once)
+    if config.optimizer_type == "cma":
+        optimize_once = make_optimize_once_fn_cma(rollout)
+        optimize = make_optimize_fn_cma(optimize_once)
+        loguru.logger.info("Using CMA-ES optimizer")
+    else:
+        optimize_once = make_optimize_once_fn(rollout)
+        optimize = make_optimize_fn(optimize_once)
     base_noise_scale = config.noise_scale.clone()
     gibbs_enabled = config.gibbs_sampling and config.embodiment_type == "bimanual"
     if config.gibbs_sampling and not gibbs_enabled:
@@ -374,6 +383,10 @@ def main(config: Config):
 
     # initial controls
     ctrls = ctrl_ref[: config.horizon_steps]
+    if config.init_ctrl_mode == "zero":
+        ctrls = torch.zeros_like(ctrl_ref[: config.horizon_steps])
+    elif config.init_ctrl_mode == "random":
+        ctrls = torch.randn_like(ctrl_ref[: config.horizon_steps]) * 0.1
     # buffers for saving info and trajectory
     info_list = []
 
@@ -503,11 +516,17 @@ def main(config: Config):
             # receding horizon update
             sim_step = int(np.round(mj_data.time / config.sim_dt))
             prev_ctrl = ctrls[config.ctrl_steps :]
-            new_ctrl = ctrl_ref[
-                sim_step + prev_ctrl.shape[0] : sim_step
-                + prev_ctrl.shape[0]
-                + config.ctrl_steps
-            ]
+            if config.init_ctrl_mode == "reference":
+                new_ctrl = ctrl_ref[
+                    sim_step + prev_ctrl.shape[0] : sim_step
+                    + prev_ctrl.shape[0]
+                    + config.ctrl_steps
+                ]
+            else:
+                new_ctrl = torch.zeros(
+                    config.ctrl_steps, ctrl_ref.shape[1],
+                    device=ctrl_ref.device, dtype=ctrl_ref.dtype,
+                )
             ctrls = torch.cat([prev_ctrl, new_ctrl], dim=0)
 
             # sync viewer state and render
