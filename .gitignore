@@ -199,7 +199,8 @@ datasets/
 MUJOCO_LOG.TXT
 MJDATA.TXT
 .DS_Store
-outputs/
+outputs/*
+!outputs/multi_task/
 
 submitit/
 example_datasets/
