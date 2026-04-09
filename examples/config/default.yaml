@@ -38,8 +38,14 @@ xy_offset_range: [-0.005, 0.005]
 perturb_force: 0.0
 perturb_torque: 0.0
 contact_guidance: false
+contact_rew_scale: 0.0
 
 # === OPTIMIZER CONFIGURATION ===
+# Control initialization
+init_ctrl_mode: reference  # "reference", "zero", or "random"
+optimizer_type: mppi  # "mppi" or "cma"
+cma_sigma0: 0.3
+cma_mu_ratio: 0.5
 # Sampling parameters
 num_samples: 1024
 temperature: 0.1
