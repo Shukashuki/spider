@@ -140,8 +140,13 @@ class Config:
     # Ablation settings
     init_ctrl_mode: str = "reference"  # "reference", "zero", or "random"
     optimizer_type: str = "mppi"  # "mppi" or "cma"
+    optimizer_mode: str = "dial"  # "dial" | "mppi" | "cma_rank" | "cma_dial" (unified sampling.py)
     cma_sigma0: float = 0.3
     cma_mu_ratio: float = 0.5
+    mppi_cma_eta_mu: float = 0.5
+    mppi_cma_eta_sigma: float = 0.3
+    mppi_cma_jitter: float = 1e-6
+    cma_ctrl_smooth_window: int = 0  # Gaussian smooth window (sim steps) on CMA ctrl output; 0=off
 
     # === VISUALIZATION CONFIGURATION ===
     show_viewer: bool = True

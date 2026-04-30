@@ -310,12 +310,20 @@ def get_reward(
     qvel_rew = -config.vel_rew_scale * qvel_dist * 1.0
 
     # contact reward
-    if config.contact_rew_scale > 0.0 and len(config.contact_site_ids) > 0:
+    # Use contact_site_ids if available, otherwise fall back to hand_contact_site_ids
+    _contact_sids = config.contact_site_ids
+    if not _contact_sids and hasattr(config, "hand_contact_site_ids"):
+        _contact_sids = [s for s in config.hand_contact_site_ids if s is not None]
+    if config.contact_rew_scale > 0.0 and len(_contact_sids) > 0:
         site_xpos_torch = wp.to_torch(env.data_wp.site_xpos)
-        contact_pos = site_xpos_torch[:, config.contact_site_ids]
-        contact_dist = torch.norm(contact_pos - contact_pos_ref, p=2, dim=-1)
-        contact_dist_masked = contact_dist * contact_ref.unsqueeze(0)
-        contact_rew = -contact_dist_masked.sum(dim=1)
+        contact_pos = site_xpos_torch[:, _contact_sids]
+        # contact_pos_ref may have different length than _contact_sids; align
+        n_use = min(contact_pos.shape[1], contact_pos_ref.shape[0])
+        contact_dist = torch.norm(
+            contact_pos[:, :n_use] - contact_pos_ref[:n_use].unsqueeze(0), p=2, dim=-1
+        )
+        contact_dist_masked = contact_dist * contact_ref[:n_use].unsqueeze(0)
+        contact_rew = -config.contact_rew_scale * contact_dist_masked.sum(dim=1)
     else:
         contact_rew = 0.0
 
@@ -326,6 +334,7 @@ def get_reward(
         "qvel_dist": qvel_dist,
         "qpos_rew": qpos_rew,
         "qvel_rew": qvel_rew,
+        "contact_rew": contact_rew if isinstance(contact_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
     }
     return reward, info
 
@@ -740,10 +749,19 @@ def load_env_params(config: Config, env: MJWPEnv, env_param: dict):
                 env.model_cpu.actuator_gainprm[actuator_ids, 0] = kp_np
                 env.model_cpu.actuator_biasprm[actuator_ids, 1] = -kd_np
 
+                loguru.logger.info(
+                    "[DEBUG kp/kd] Setting kp={} kd={} for actuator_ids={}",
+                    kp_np[:3], kd_np[:3], actuator_ids[:3],
+                )
+
                 # Propagate to MJWarp model if available
-                if hasattr(env.model_wp, "actuator_gainprm") and hasattr(
-                    env.model_wp, "actuator_biasprm"
-                ):
+                has_gain = hasattr(env.model_wp, "actuator_gainprm")
+                has_bias = hasattr(env.model_wp, "actuator_biasprm")
+                loguru.logger.info(
+                    "[DEBUG kp/kd] model_wp has actuator_gainprm={}, actuator_biasprm={}",
+                    has_gain, has_bias,
+                )
+                if has_gain and has_bias:
                     gain_full = np.array(
                         env.model_cpu.actuator_gainprm, dtype=np.float32
                     )

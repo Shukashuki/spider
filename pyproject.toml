@@ -30,6 +30,7 @@ dependencies = [
   "gspread",
   "google-auth",
   "mink",
+  "warp-lang==1.12.1",
 ]
 
 [project.scripts]

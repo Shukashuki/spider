@@ -45,6 +45,18 @@ from spider.optimizers.cma import (
     make_optimize_fn_cma,
     make_optimize_once_fn_cma,
 )
+from spider.optimizers.mppi_cma import (
+    make_optimize_fn_mppi_cma,
+    make_optimize_once_fn_mppi_cma,
+)
+from spider.optimizers.mppi_cma_full import (
+    make_optimize_fn_mppi_cma_full,
+    make_optimize_once_fn_mppi_cma_full,
+)
+from spider.optimizers.cma_full import (
+    make_optimize_fn_cma_full,
+    make_optimize_once_fn_cma_full,
+)
 from spider.postprocess.get_success_rate import compute_object_tracking_error
 from spider.simulators.mjwp import (
     compute_contact_point_delta,
@@ -366,9 +378,22 @@ def main(config: Config):
         optimize_once = make_optimize_once_fn_cma(rollout)
         optimize = make_optimize_fn_cma(optimize_once)
         loguru.logger.info("Using CMA-ES optimizer")
-    else:
+    elif config.optimizer_type == "cma_full":
+        optimize_once = make_optimize_once_fn_cma_full(rollout)
+        optimize = make_optimize_fn_cma_full(optimize_once)
+        loguru.logger.info("Using CMA-ES (Hansen, full) optimizer")
+    elif config.optimizer_type == "mppi_cma":
+        # Route through unified sampling.py with full-covariance CMA mode
+        config.optimizer_mode = "cma_rank"
         optimize_once = make_optimize_once_fn(rollout)
         optimize = make_optimize_fn(optimize_once)
+        loguru.logger.info("Using MPPI-CMA (unified sampling.py, full covariance) optimizer")
+    else:
+        # Unified sampling.py handles dial / mppi / cma via config.optimizer_mode
+        optimize_once = make_optimize_once_fn(rollout)
+        optimize = make_optimize_fn(optimize_once)
+        if getattr(config, "optimizer_mode", "dial") != "dial":
+            loguru.logger.info(f"Using optimizer_mode={config.optimizer_mode} (unified sampling.py)")
     base_noise_scale = config.noise_scale.clone()
     gibbs_enabled = config.gibbs_sampling and config.embodiment_type == "bimanual"
     if config.gibbs_sampling and not gibbs_enabled:
