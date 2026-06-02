@@ -87,8 +87,6 @@
       <geom class="collision" mesh="palm_link_collision"/>
       <!-- SPIDER: wrist tracking site -->
       <site name="right_palm" pos="0 0 0" type="box" size="0.01 0.02 0.03"/>
-      <site name="track_hand_right_palm" pos="0 0 0"/>
-      <site name="trace_hand_right_palm" pos="0 0 0"/>
 
       <!-- finger1 = thumb -->
       <body name="finger1_link1" pos="0.0085244 0.020575 0.028712" quat="0.682219 -0.617669 0.0805047 -0.382859">

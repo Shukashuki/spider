@@ -86,8 +86,6 @@
       <geom class="lvisual" density="0" rgba="0.898 0.918 0.929 1" mesh="l_palm_link"/>
       <geom class="lcollision" mesh="l_palm_link_collision"/>
       <site name="left_palm" pos="0 0 0" type="box" size="0.01 0.02 0.03"/>
-      <site name="track_hand_left_palm" pos="0 0 0"/>
-      <site name="trace_hand_left_palm"  pos="0 0 0"/>
 
       <!-- finger1 = thumb -->
       <body name="l_finger1_link1" pos="0.0085244 -0.020575 0.028712" quat="0.881629 0.118908 -0.18344 -0.41826">
