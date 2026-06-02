@@ -21,6 +21,12 @@
   </default>
 
   <asset>
+    <texture type="2d" name="right_groundplane" builtin="checker" mark="edge"
+             rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8"
+             width="300" height="300"/>
+    <material name="right_groundplane" texture="right_groundplane" texuniform="true"
+              texrepeat="5 5" reflectance="0.2"/>
+
     <mesh name="palm_link"               file="palm_link.STL"/>
     <mesh name="palm_link_collision"     file="palm_link_collision.STL"/>
     <mesh name="finger1_link1"           file="finger1_link1.STL"/>
