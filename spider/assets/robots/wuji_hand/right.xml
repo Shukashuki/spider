@@ -1,5 +1,5 @@
 <mujoco model="wujihand-right-spider">
-  <compiler angle="radian" meshdir="assets/right/" balanceinertia="true"/>
+  <compiler angle="radian" meshdir="assets/" balanceinertia="true"/>
 
   <option jacobian="sparse"
           integrator="RK4"
