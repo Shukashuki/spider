@@ -84,15 +84,15 @@
   <worldbody>
     <!-- 6DOF forearm chain: 3 slides (tx/ty/tz) + 3 revolutes (rx/ry/rz) -->
     <body name="R_wrist_tx_link" pos="0 0 1.0">
-      <body name="R_wrist_ty_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+      <body name="R_wrist_ty_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
         <joint name="R_wrist_tx_joint" type="slide" axis="1 0 0" range="-5 5" damping="10" armature="0"/>
-        <body name="R_wrist_tz_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+        <body name="R_wrist_tz_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
           <joint name="R_wrist_ty_joint" type="slide" axis="0 1 0" range="-5 5" damping="10" armature="0"/>
-          <body name="R_wrist_rx_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+          <body name="R_wrist_rx_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
             <joint name="R_wrist_tz_joint" type="slide" axis="0 0 1" range="-5 5" damping="10" armature="0"/>
-            <body name="R_wrist_ry_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+            <body name="R_wrist_ry_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
               <joint name="R_wrist_rx_joint" axis="0 0 1" range="-6.28 6.28" damping="1" armature="0"/>
-              <body name="R_wrist_rz_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+              <body name="R_wrist_rz_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
                 <joint name="R_wrist_ry_joint" axis="1 0 0" range="-6.28 6.28" damping="1" armature="0"/>
                 <body name="palm_link">
                   <joint name="R_wrist_rz_joint" axis="0 -1 0" range="-6.28 6.28" damping="1" armature="0"/>
@@ -268,12 +268,12 @@
 
   <actuator>
     <!-- 6DOF wrist: slides then revolutes -->
-    <position name="R_wrist_tx_joint" joint="R_wrist_tx_joint" ctrlrange="-5 5"     kp="500" forcerange="-500 500"/>
-    <position name="R_wrist_ty_joint" joint="R_wrist_ty_joint" ctrlrange="-5 5"     kp="500" forcerange="-500 500"/>
-    <position name="R_wrist_tz_joint" joint="R_wrist_tz_joint" ctrlrange="-5 5"     kp="500" forcerange="-500 500"/>
-    <position name="R_wrist_rx_joint" joint="R_wrist_rx_joint" ctrlrange="-6.28 6.28" kp="50" forcerange="-50 50"/>
-    <position name="R_wrist_ry_joint" joint="R_wrist_ry_joint" ctrlrange="-6.28 6.28" kp="50" forcerange="-50 50"/>
-    <position name="R_wrist_rz_joint" joint="R_wrist_rz_joint" ctrlrange="-6.28 6.28" kp="50" forcerange="-50 50"/>
+    <position name="R_wrist_tx_joint" joint="R_wrist_tx_joint" ctrlrange="-5 5"     kp="1000" forcerange="-1000 1000"/>
+    <position name="R_wrist_ty_joint" joint="R_wrist_ty_joint" ctrlrange="-5 5"     kp="1000" forcerange="-1000 1000"/>
+    <position name="R_wrist_tz_joint" joint="R_wrist_tz_joint" ctrlrange="-5 5"     kp="1000" forcerange="-1000 1000"/>
+    <position name="R_wrist_rx_joint" joint="R_wrist_rx_joint" ctrlrange="-6.28 6.28" kp="200" forcerange="-200 200"/>
+    <position name="R_wrist_ry_joint" joint="R_wrist_ry_joint" ctrlrange="-6.28 6.28" kp="200" forcerange="-200 200"/>
+    <position name="R_wrist_rz_joint" joint="R_wrist_rz_joint" ctrlrange="-6.28 6.28" kp="200" forcerange="-200 200"/>
     <!-- finger joints -->
     <position name="finger1_joint1" joint="finger1_joint1" ctrlrange="-1.57 1.57" kp="2"   forcerange="-3 3"/>
     <position name="finger1_joint2" joint="finger1_joint2" ctrlrange="-1.57 1.57" kp="2"   forcerange="-3 3"/>
