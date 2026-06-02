@@ -87,3 +87,52 @@ Requires: MJCF assets in `spider/assets/`, embodiment mappings in `spider/config
 - `spider/math.py` — quaternion/rotation math utilities
 - `spider/interp.py` — trajectory interpolation
 - `spider/mujoco_utils.py` — MuJoCo model helpers
+
+---
+
+## Wuji Hand (Shukashuki fork addition)
+
+### Quick-start commands
+```bash
+# Generate scene XML
+uv run spider/preprocess/generate_xml.py \
+  --dataset-name oakink --task uncap_alcohol_burner --data-id 0 \
+  --embodiment-type bimanual --robot-type wuji_hand
+
+# IK
+uv run spider/preprocess/ik.py \
+  --dataset-name oakink --task uncap_alcohol_burner --data-id 0 \
+  --embodiment-type bimanual --robot-type wuji_hand --open-hand
+
+# Physics optimization — must use oakink_wuji, NOT oakink
+uv run examples/run_mjwp.py \
+  +override=oakink_wuji task=uncap_alcohol_burner data_id=0 viewer=""
+```
+
+### Design decisions
+
+**6DOF forearm chain in right.xml / left.xml**
+SPIDER IK uses equality constraints to pull the `right_palm` site to the MANO wrist
+position. A fixed-base palm cannot be moved → both hands collapse at the origin.
+Fix: prepend 3 prismatic (slide) + 3 revolute joints before palm_link, matching
+the XHand forearm chain pattern. kp=1000 for slides, kp=200 for revolutes.
+
+**left.xml body naming**
+`bimanual.xml` merges both hands via `<include>`. The original MJCF uses identical
+body/joint names for both hands, causing conflicts in bimanual. Fix: prefix all
+left-hand body, joint, geom, site, and actuator names with `l_`. Left-hand STL
+files also use the `l_` prefix in the shared `assets/` directory.
+
+**Noise scale (oakink_wuji.yaml)**
+`oakink.yaml` sets `first_ctrl_noise_scale=2.0`, which exceeds finger joint limits
+(±1.57 rad) and applies enormous forces via the kp=1000 wrist slides (~50% NaN).
+Always use `+override=oakink_wuji` (noise reduced to 0.2 / 0.4).
+
+**njmax**
+52-DOF bimanual model + object contacts exceed the default njmax=350.
+`oakink_wuji.yaml` sets `njmax_per_env=512, nconmax_per_env=200`.
+
+### Known limitations
+- Left hand FK orientation (mirrored kinematics) not yet visually verified
+- Physics optimization NaN rate to be confirmed with oakink_wuji.yaml (expect <10%)
+- No bimanual URDF (single-hand URDFs exist; SPIDER does not require them)
