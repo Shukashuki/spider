@@ -1,0 +1,4 @@
+<mujoco model="wujihand-bimanual-spider">
+    <include file="right.xml" />
+    <include file="left.xml" />
+</mujoco>
