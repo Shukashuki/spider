@@ -1,0 +1,30 @@
+# @package _global_
+# OakInk + Wuji Hand override
+#
+# Why lower noise vs oakink.yaml:
+#   finger joints ctrlrange ≈ ±1.57 rad; first_ctrl_noise_scale=2.0 would
+#   produce ±2.0 rad perturbations — exceeding joint limits every sample.
+#   Wrist slides (kp=1000, ctrlrange=±5m) amplify large noise into huge forces.
+#   Both effects blow up ~50% of GPU-parallel samples → NaN rewards.
+task: uncap_alcohol_burner
+robot_type: wuji_hand
+embodiment_type: bimanual
+data_id: 0
+temperature: 1.0
+num_samples: 512
+ctrl_dt: 1.5
+knot_dt: 1.0
+horizon: 3.0
+first_ctrl_noise_scale: 0.2    # was 2.0 — stays within ±1.57 rad finger limits
+last_ctrl_noise_scale: 0.4     # was 4.0
+improvement_threshold: 0.01
+improvement_check_steps: 2
+max_num_iterations: 16
+base_pos_rew_scale: 0.1
+base_rot_rew_scale: 0.03
+joint_noise_scale: 0.04        # was 0.1
+pos_noise_scale: 0.005
+rot_noise_scale: 0.005
+final_noise_scale: 0.01
+njmax_per_env: 512
+nconmax_per_env: 200
