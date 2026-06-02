@@ -82,10 +82,23 @@
   </asset>
 
   <worldbody>
-    <body name="left_palm_link" pos="0 0 0">
-      <geom class="lvisual" density="0" rgba="0.898 0.918 0.929 1" mesh="l_palm_link"/>
-      <geom class="lcollision" mesh="l_palm_link_collision"/>
-      <site name="left_palm" pos="0 0 0" type="box" size="0.01 0.02 0.03"/>
+    <!-- 6DOF forearm chain for left hand -->
+    <body name="L_wrist_tx_link" pos="0 0 1.0">
+      <body name="L_wrist_ty_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+        <joint name="L_wrist_tx_joint" type="slide" axis="1 0 0" range="-5 5" damping="10" armature="0"/>
+        <body name="L_wrist_tz_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+          <joint name="L_wrist_ty_joint" type="slide" axis="0 1 0" range="-5 5" damping="10" armature="0"/>
+          <body name="L_wrist_rx_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+            <joint name="L_wrist_tz_joint" type="slide" axis="0 0 1" range="-5 5" damping="10" armature="0"/>
+            <body name="L_wrist_ry_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+              <joint name="L_wrist_rx_joint" axis="0 0 1" range="-6.28 6.28" damping="1" armature="0"/>
+              <body name="L_wrist_rz_link"><inertial pos="0 0 0" mass="0.01" diaginertia="1e-5 1e-5 1e-5"/>
+                <joint name="L_wrist_ry_joint" axis="1 0 0" range="-6.28 6.28" damping="1" armature="0"/>
+                <body name="left_palm_link">
+                  <joint name="L_wrist_rz_joint" axis="0 -1 0" range="-6.28 6.28" damping="1" armature="0"/>
+                  <geom class="lvisual" density="0" rgba="0.898 0.918 0.929 1" mesh="l_palm_link"/>
+                  <geom class="lcollision" mesh="l_palm_link_collision"/>
+                  <site name="left_palm" pos="0 0 0" type="box" size="0.01 0.02 0.03"/>
 
       <!-- finger1 = thumb -->
       <body name="l_finger1_link1" pos="0.0085244 -0.020575 0.028712" quat="0.881629 0.118908 -0.18344 -0.41826">
@@ -242,10 +255,24 @@
         </body>
       </body>
 
-    </body>
+                </body>  <!-- left_palm_link -->
+              </body>  <!-- L_wrist_rz_link -->
+            </body>  <!-- L_wrist_ry_link -->
+          </body>  <!-- L_wrist_rx_link -->
+        </body>  <!-- L_wrist_tz_link -->
+      </body>  <!-- L_wrist_ty_link -->
+    </body>  <!-- L_wrist_tx_link -->
   </worldbody>
 
   <actuator>
+    <!-- 6DOF wrist: slides then revolutes -->
+    <position name="L_wrist_tx_joint" joint="L_wrist_tx_joint" ctrlrange="-5 5"     kp="500" forcerange="-500 500"/>
+    <position name="L_wrist_ty_joint" joint="L_wrist_ty_joint" ctrlrange="-5 5"     kp="500" forcerange="-500 500"/>
+    <position name="L_wrist_tz_joint" joint="L_wrist_tz_joint" ctrlrange="-5 5"     kp="500" forcerange="-500 500"/>
+    <position name="L_wrist_rx_joint" joint="L_wrist_rx_joint" ctrlrange="-6.28 6.28" kp="50" forcerange="-50 50"/>
+    <position name="L_wrist_ry_joint" joint="L_wrist_ry_joint" ctrlrange="-6.28 6.28" kp="50" forcerange="-50 50"/>
+    <position name="L_wrist_rz_joint" joint="L_wrist_rz_joint" ctrlrange="-6.28 6.28" kp="50" forcerange="-50 50"/>
+    <!-- finger joints -->
     <position name="l_finger1_joint1" joint="l_finger1_joint1" ctrlrange="-1.57 1.57" kp="2"   forcerange="-3 3"/>
     <position name="l_finger1_joint2" joint="l_finger1_joint2" ctrlrange="-1.57 1.57" kp="2"   forcerange="-3 3"/>
     <position name="l_finger1_joint3" joint="l_finger1_joint3" ctrlrange="-1.57 1.57" kp="1"   forcerange="-1.5 1.5"/>
