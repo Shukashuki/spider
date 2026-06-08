@@ -56,7 +56,7 @@ index-strategy = "unsafe-best-match"
 
 [tool.uv.sources]
 warp-lang = { index = "nvidia" }
-oakink2-toolkit = { path = "/home/chaoyip/OakInk2" }
+oakink2-toolkit = { path = "../../data/oakink2" }
 
 
 [tool.hatch.build.targets.wheel]

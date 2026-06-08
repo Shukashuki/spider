@@ -1,0 +1,20 @@
+# @package _global_
+# Override configuration for hot3d dataset (bimanual xhand)
+dataset_name: hot3d
+robot_type: xhand
+embodiment_type: bimanual
+task: P0001_4bf4e21a-obj96945373046044
+data_id: 0
+ref_dt: 0.02
+horizon: 1.6
+temperature: 1.0
+improvement_threshold: 0.001
+improvement_check_steps: 1
+base_pos_rew_scale: 0.1
+base_rot_rew_scale: 0.03
+joint_noise_scale: 0.03
+pos_noise_scale: 0.03
+rot_noise_scale: 0.01
+viewer: ""
+save_video: false
+cma_sigma0: 0.05

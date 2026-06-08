@@ -83,7 +83,7 @@
 
   <worldbody>
     <!-- 6DOF forearm chain for left hand -->
-    <body name="L_wrist_tx_link" pos="0 0 1.0">
+    <body name="L_wrist_tx_link" pos="0 0 0">
       <body name="L_wrist_ty_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
         <joint name="L_wrist_tx_joint" type="slide" axis="1 0 0" range="-5 5" damping="10" armature="0"/>
         <body name="L_wrist_tz_link"><inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>

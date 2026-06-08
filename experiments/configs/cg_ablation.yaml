@@ -1,0 +1,52 @@
+# Four-way comparison: optimizer × contact guidance
+experiment:
+  name: "cg_ablation"
+  task: "p36-tea"
+  dataset_name: "gigahand"
+  seeds: 5
+  focus_ticks: [4, 5, 6]
+  warmup_iters: 1
+  full_iters: 32
+
+# Shared base — ALL conditions inherit these identically
+base:
+  robot_type: "xhand"
+  embodiment_type: "bimanual"
+  sim_dt: 0.01
+  ctrl_dt: 0.4
+  horizon: 1.6
+  knot_dt: 0.4
+  num_samples: 1024
+  temperature: 0.1
+  contact_rew_scale: 0.0
+  init_ctrl_mode: "reference"
+  first_ctrl_noise_scale: 0.5
+  last_ctrl_noise_scale: 1.0
+  final_noise_scale: 0.1
+  improvement_threshold: -1.0
+  improvement_check_steps: 999
+  cma_sigma0: 0.3
+  cma_mu_ratio: 0.5
+
+conditions:
+  mppi:
+    label: "MPPI"
+    engine: "original"
+    contact_guidance: false
+
+  mppi_cg:
+    label: "MPPI + CG"
+    engine: "original"
+    contact_guidance: true
+
+  cma:
+    label: "MPPI-CMA"
+    engine: "cma_horizon"
+    contact_guidance: false
+    eta_sigma: 0.3
+
+  cma_cg:
+    label: "MPPI-CMA + CG"
+    engine: "cma_horizon"
+    contact_guidance: true
+    eta_sigma: 0.3
