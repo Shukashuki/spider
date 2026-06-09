@@ -124,6 +124,7 @@
               <geom class="collision" mesh="finger1_link4_collision"/>
               <geom pos="-0.0011048 0.00023218 0.0283" class="visual" density="0" rgba="0.898 0.918 0.929 1" mesh="finger1_tip_link"/>
               <geom pos="-0.0011048 0.00023218 0.0283" class="collision" mesh="finger1_tip_link_collision"/>
+              <geom name="collision_hand_right_thumb_0" type="sphere" size="0.007" pos="-0.0011048 0.00023218 0.0283" rgba="0 1 0 1" group="3"/>
               <!-- SPIDER: thumb tip sites -->
               <site name="right_thumb_tip"       pos="-0.0011048 0.00023218 0.0283"/>
               <site name="track_hand_right_thumb_tip" pos="-0.0011048 0.00023218 0.0283"/>
@@ -156,6 +157,7 @@
               <geom class="collision" mesh="finger2_link4_collision"/>
               <geom pos="-0.00105 0 0.0274" class="visual" density="0" rgba="0.898 0.918 0.929 1" mesh="finger2_tip_link"/>
               <geom pos="-0.00105 0 0.0274" class="collision" mesh="finger2_tip_link_collision"/>
+              <geom name="collision_hand_right_index_0" type="sphere" size="0.007" pos="-0.00105 0 0.0274" rgba="0 1 0 1" group="3"/>
               <site name="right_index_tip"       pos="-0.00105 0 0.0274"/>
               <site name="track_hand_right_index_tip" pos="-0.00105 0 0.0274"/>
               <site name="trace_hand_right_index_tip" pos="-0.00105 0 0.0274"/>
@@ -187,6 +189,7 @@
               <geom class="collision" mesh="finger3_link4_collision"/>
               <geom pos="-0.0010491 0 0.0267" class="visual" density="0" rgba="0.898 0.918 0.929 1" mesh="finger3_tip_link"/>
               <geom pos="-0.0010491 0 0.0267" class="collision" mesh="finger3_tip_link_collision"/>
+              <geom name="collision_hand_right_middle_0" type="sphere" size="0.007" pos="-0.0010491 0 0.0267" rgba="0 1 0 1" group="3"/>
               <site name="right_middle_tip"       pos="-0.0010491 0 0.0267"/>
               <site name="track_hand_right_middle_tip" pos="-0.0010491 0 0.0267"/>
               <site name="trace_hand_right_middle_tip" pos="-0.0010491 0 0.0267"/>
@@ -218,6 +221,7 @@
               <geom class="collision" mesh="finger4_link4_collision"/>
               <geom pos="-0.0010528 0 0.0267" class="visual" density="0" rgba="0.898 0.918 0.929 1" mesh="finger4_tip_link"/>
               <geom pos="-0.0010528 0 0.0267" class="collision" mesh="finger4_tip_link_collision"/>
+              <geom name="collision_hand_right_ring_0" type="sphere" size="0.007" pos="-0.0010528 0 0.0267" rgba="0 1 0 1" group="3"/>
               <site name="right_ring_tip"       pos="-0.0010528 0 0.0267"/>
               <site name="track_hand_right_ring_tip" pos="-0.0010528 0 0.0267"/>
               <site name="trace_hand_right_ring_tip" pos="-0.0010528 0 0.0267"/>
@@ -249,6 +253,7 @@
               <geom class="collision" mesh="finger5_link4_collision"/>
               <geom pos="-0.0010446 1.1308e-05 0.0267" class="visual" density="0" rgba="0.898 0.918 0.929 1" mesh="finger5_tip_link"/>
               <geom pos="-0.0010446 1.1308e-05 0.0267" class="collision" mesh="finger5_tip_link_collision"/>
+              <geom name="collision_hand_right_pinky_0" type="sphere" size="0.007" pos="-0.0010446 1.1308e-05 0.0267" rgba="0 1 0 1" group="3"/>
               <site name="right_pinky_tip"       pos="-0.0010446 1.1308e-05 0.0267"/>
               <site name="track_hand_right_pinky_tip" pos="-0.0010446 1.1308e-05 0.0267"/>
               <site name="trace_hand_right_pinky_tip" pos="-0.0010446 1.1308e-05 0.0267"/>

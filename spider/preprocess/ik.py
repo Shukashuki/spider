@@ -762,12 +762,26 @@ def main(
         contact_list = np.array(contact_list)[1:]
         assert qpos_list.shape[0] == qvel_list.shape[0]
 
+        # Zero object free-joint velocities: IK finite-diff produces large
+        # angular-velocity artifacts (~3 rad/s) that destabilise the simulator.
+        for _obj_jname in ["right_object_joint", "left_object_joint"]:
+            _jid = mujoco.mj_name2id(mj_model_ik, mujoco.mjtObj.mjOBJ_JOINT, _obj_jname)
+            if _jid >= 0:
+                _dofadr = mj_model_ik.jnt_dofadr[_jid]
+                qvel_list[:, _dofadr : _dofadr + 6] = 0.0
+
         # directly rollout ctrl to get qpos_rollout
         mj_model.opt.timestep = ref_dt
+        mj_model.opt.impratio = 1.0   # soften contacts for rollout stability
+        mj_model.opt.integrator = mujoco.mjtIntegrator.mjINT_EULER
         mj_data.qpos[:] = qpos_list[0]
         mj_data.qvel[:] = qvel_list[0]
         mj_data.ctrl[:] = qpos_list[0][: mj_model.nq - nq_obj]
         mujoco.mj_step(mj_model, mj_data)
+        # Reset after warm-up to undo floor-object penetration impulse
+        mj_data.qpos[:] = qpos_list[0]
+        mj_data.qvel[:] = qvel_list[0]
+        mujoco.mj_forward(mj_model, mj_data)
         H = qpos_list.shape[0]
         qpos_rollout = np.zeros((H, mj_model.nq))
         qvel_rollout = np.zeros((H, mj_model.nv))
