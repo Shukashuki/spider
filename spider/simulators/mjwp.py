@@ -317,7 +317,81 @@ def get_reward(
     else:
         contact_rew = 0.0
 
-    reward = qpos_rew + qvel_rew + contact_rew
+    # cap contact reward: ||fingertip_world - cap_contact_site_world||
+    hand_sids = [s for s in config.hand_contact_site_ids if s is not None]
+    obj_sids  = [s for s in config.object_contact_site_ids if s is not None]
+    if config.cap_contact_rew_scale > 0.0 and hand_sids and obj_sids:
+        site_xpos_all = wp.to_torch(env.data_wp.site_xpos)
+        n_pairs = min(len(hand_sids), len(obj_sids))
+        hand_pos = site_xpos_all[:, hand_sids[:n_pairs]]  # (N, n_pairs, 3)
+        obj_pos  = site_xpos_all[:, obj_sids[:n_pairs]]   # (N, n_pairs, 3)
+        cap_dist = torch.norm(hand_pos - obj_pos, p=2, dim=-1)  # (N, n_pairs)
+        cap_contact_rew = -config.cap_contact_rew_scale * cap_dist.sum(dim=1)
+    else:
+        cap_contact_rew = 0.0
+
+    # cap distance + direction matching reward
+    # dist:  |dist_sim_i(t) - dist_ref_i(t)|  per finger
+    # dir:   ||unit(fingertip-obj)_sim - unit(fingertip-obj)_ref||  per finger
+    mocap_ids = config.ref_hand_mocap_ids
+    if (config.cap_dist_rew_scale > 0.0 or config.cap_dir_rew_scale > 0.0) and hand_sids and mocap_ids:
+        n_pairs = min(len(hand_sids), len(mocap_ids))
+        # reference vectors: fingertip - object (world frame)
+        ref_finger_pos = contact_pos_ref[mocap_ids[:n_pairs]]         # (n_pairs, 3)
+        ref_obj_pos    = qpos_ref[-7:-4]                               # (3,)
+        ref_vec   = ref_finger_pos - ref_obj_pos.unsqueeze(0)          # (n_pairs, 3)
+        dist_ref  = torch.norm(ref_vec, p=2, dim=-1, keepdim=True)     # (n_pairs, 1)
+        ref_dir   = ref_vec / (dist_ref + 1e-6)                        # (n_pairs, 3) unit vectors
+        dist_ref  = dist_ref.squeeze(-1)                               # (n_pairs,)
+        # simulation vectors: fingertip site - object position from free-joint qpos
+        site_xpos_all = wp.to_torch(env.data_wp.site_xpos)
+        qpos_sim_all  = wp.to_torch(env.data_wp.qpos)
+        sim_finger_pos = site_xpos_all[:, hand_sids[:n_pairs]]         # (N, n_pairs, 3)
+        sim_obj_pos    = qpos_sim_all[:, -7:-4]                        # (N, 3)
+        sim_vec   = sim_finger_pos - sim_obj_pos.unsqueeze(1)          # (N, n_pairs, 3)
+        dist_sim  = torch.norm(sim_vec, p=2, dim=-1, keepdim=True)     # (N, n_pairs, 1)
+        sim_dir   = sim_vec / (dist_sim + 1e-6)                        # (N, n_pairs, 3) unit vectors
+        dist_sim  = dist_sim.squeeze(-1)                               # (N, n_pairs)
+        # distance term
+        dist_diff = torch.abs(dist_sim - dist_ref.unsqueeze(0))        # (N, n_pairs)
+        cap_dist_rew = -config.cap_dist_rew_scale * dist_diff.sum(dim=1)
+        # direction term: L2 distance between unit vectors (0=same dir, 2=opposite)
+        dir_diff  = torch.norm(sim_dir - ref_dir.unsqueeze(0), p=2, dim=-1)  # (N, n_pairs)
+        cap_dir_rew = -config.cap_dir_rew_scale * dir_diff.sum(dim=1)
+    else:
+        cap_dist_rew = 0.0
+        cap_dir_rew  = 0.0
+
+    # knuckle (DIP joint) distance + direction matching reward
+    knuckle_mocap_ids = config.ref_knuckle_mocap_ids
+    knuckle_sids = [s for s in config.hand_knuckle_site_ids if s is not None]
+    if (config.knuckle_dist_rew_scale > 0.0 or config.knuckle_dir_rew_scale > 0.0) and knuckle_sids and knuckle_mocap_ids:
+        n_pairs = min(len(knuckle_sids), len(knuckle_mocap_ids))
+        ref_knuckle_pos = contact_pos_ref[knuckle_mocap_ids[:n_pairs]]   # (n_pairs, 3)
+        ref_obj_pos_k   = qpos_ref[-7:-4]                                 # (3,)
+        ref_vec_k  = ref_knuckle_pos - ref_obj_pos_k.unsqueeze(0)         # (n_pairs, 3)
+        dist_ref_k = torch.norm(ref_vec_k, p=2, dim=-1, keepdim=True)    # (n_pairs, 1)
+        ref_dir_k  = ref_vec_k / (dist_ref_k + 1e-6)                     # (n_pairs, 3)
+        dist_ref_k = dist_ref_k.squeeze(-1)                              # (n_pairs,)
+        site_xpos_all_k = wp.to_torch(env.data_wp.site_xpos)
+        qpos_sim_k      = wp.to_torch(env.data_wp.qpos)
+        sim_knuckle_pos = site_xpos_all_k[:, knuckle_sids[:n_pairs]]    # (N, n_pairs, 3)
+        sim_obj_pos_k   = qpos_sim_k[:, -7:-4]                          # (N, 3)
+        sim_vec_k  = sim_knuckle_pos - sim_obj_pos_k.unsqueeze(1)       # (N, n_pairs, 3)
+        dist_sim_k = torch.norm(sim_vec_k, p=2, dim=-1, keepdim=True)   # (N, n_pairs, 1)
+        sim_dir_k  = sim_vec_k / (dist_sim_k + 1e-6)                    # (N, n_pairs, 3)
+        dist_sim_k = dist_sim_k.squeeze(-1)                             # (N, n_pairs)
+        knuckle_dist_rew = -config.knuckle_dist_rew_scale * torch.abs(
+            dist_sim_k - dist_ref_k.unsqueeze(0)
+        ).sum(dim=1)
+        knuckle_dir_rew = -config.knuckle_dir_rew_scale * torch.norm(
+            sim_dir_k - ref_dir_k.unsqueeze(0), p=2, dim=-1
+        ).sum(dim=1)
+    else:
+        knuckle_dist_rew = 0.0
+        knuckle_dir_rew  = 0.0
+
+    reward = qpos_rew + qvel_rew + contact_rew + cap_contact_rew + cap_dist_rew + cap_dir_rew + knuckle_dist_rew + knuckle_dir_rew
 
     info = {
         "qpos_dist": qpos_dist,
@@ -325,6 +399,11 @@ def get_reward(
         "qpos_rew": qpos_rew,
         "qvel_rew": qvel_rew,
         "contact_rew": contact_rew if isinstance(contact_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
+        "cap_contact_rew": cap_contact_rew if isinstance(cap_contact_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
+        "cap_dist_rew": cap_dist_rew if isinstance(cap_dist_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
+        "cap_dir_rew": cap_dir_rew if isinstance(cap_dir_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
+        "knuckle_dist_rew": knuckle_dist_rew if isinstance(knuckle_dist_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
+        "knuckle_dir_rew": knuckle_dir_rew if isinstance(knuckle_dir_rew, torch.Tensor) else torch.zeros_like(qpos_rew),
     }
     return reward, info
 

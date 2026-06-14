@@ -1,0 +1,25 @@
+# @package _global_
+# OakInk-v2 + Wuji Hand override
+dataset_name: oakinkv2
+task: unscrew_bottle
+robot_type: wuji_hand
+embodiment_type: right
+data_id: 0
+temperature: 1.0
+num_samples: 512
+ctrl_dt: 0.4
+knot_dt: 0.4
+horizon: 2.4
+first_ctrl_noise_scale: 0.2
+last_ctrl_noise_scale: 0.4
+improvement_threshold: 0.01
+improvement_check_steps: 2
+max_num_iterations: 16
+base_pos_rew_scale: 0.1
+base_rot_rew_scale: 0.03
+joint_noise_scale: 0.04
+pos_noise_scale: 0.005
+rot_noise_scale: 0.005
+final_noise_scale: 0.01
+njmax_per_env: 512
+nconmax_per_env: 200

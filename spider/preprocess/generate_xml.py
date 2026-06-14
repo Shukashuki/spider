@@ -31,7 +31,12 @@ def _add_object_xyzrpy_actuators(
     object_pos_kd: float,
     object_rot_kp: float,
     object_rot_kd: float,
+    free_dof_suffixes: frozenset[str] = frozenset(),
 ) -> str:
+    """Replace the free joint on each {side}_object body with 6 slide/hinge joints
+    and add position actuators for each.  Joints whose suffix appears in
+    *free_dof_suffixes* (e.g. ``frozenset({"rot_z"})``) are added without an
+    actuator so they can rotate/translate freely under contact forces."""
     root = ET.fromstring(xml_text)
     worldbody = root.find("worldbody")
     if worldbody is None:
@@ -85,7 +90,7 @@ def _add_object_xyzrpy_actuators(
             body.insert(insert_index + offset, ET.Element("joint", joint_attrs))
 
             actuator_name = joint_name
-            if actuator_name not in existing_actuators:
+            if actuator_name not in existing_actuators and suffix not in free_dof_suffixes:
                 kp = object_pos_kp if group == "pos" else object_rot_kp
                 kd = object_pos_kd if group == "pos" else object_rot_kd
                 actuator_attrs = {
@@ -121,6 +126,7 @@ def main(
     friction_scale: float = 1.0,
     show_viewer: bool = True,
     act_scene: bool = False,
+    free_rot_z: bool = False,
 ):
     dataset_dir = os.path.abspath(dataset_dir)
     processed_dir = get_processed_data_dir(
@@ -277,6 +283,8 @@ def main(
         size=[0, 0, 0.05],
         pos=[0, 0, floor_z],
         material=material_name,
+        contype=0,   # no broad-phase collision; hand passes through freely
+        conaffinity=0,  # explicit floor<->object pairs still work
     )
     right_convex_dir = task_info.get("right_object_convex_dir")
     right_convex_dir = f"{dataset_dir}/{right_convex_dir}"
@@ -364,17 +372,23 @@ def main(
                     geom_name = "right_object_collision_visual"
                 right_object_collision_names.append(geom_name)
                 group = 3
+                # Enable broad-phase so all hand link geoms (not just fingertip spheres)
+                # collide with the object and cannot penetrate through it.
+                obj_contype = 1
+                obj_conaffinity = 1
             else:
                 rgba = [1, 1, 1, 1]
                 density = 0
                 group = 0
+                obj_contype = 0
+                obj_conaffinity = 0
             right_object_handle.add_geom(
                 name=geom_name,
                 type=mujoco.mjtGeom.mjGEOM_MESH,
                 meshname=f"right_{suffix}",
                 pos=[0, 0, 0],
-                conaffinity=0,
-                contype=0,
+                conaffinity=obj_conaffinity,
+                contype=obj_contype,
                 rgba=rgba,
                 density=density,
                 group=group,
@@ -443,6 +457,21 @@ def main(
                 size=[0.02, 0.02, 0.02],
                 group=4,
                 rgba=[0, 1, 0, 1],
+            )
+            # knuckle (DIP joint) mocap — tracked by track_hand_right_{finger}_knuckle site
+            knuckle_name = finger_name.replace("_tip", "_knuckle")
+            mocap_handle = mj_spec.worldbody.add_body(
+                name=f"ref_hand_right_{knuckle_name}",
+                pos=[0, 0, 0],
+                quat=[1, 0, 0, 0],
+                mocap=True,
+            )
+            mocap_handle.add_site(
+                name=f"ref_hand_right_{knuckle_name}",
+                pos=[0, 0, 0],
+                size=[0.015, 0.015, 0.015],
+                group=4,
+                rgba=[0, 0, 1, 1],
             )
 
     left_object_collision_names = []
@@ -663,10 +692,8 @@ def main(
     # hand <-> object collision
     for object_collision_name in object_collision_names:
         for hand_collision_name in hand_collision_names_for_object:
-            if "thumb" in hand_collision_name or "index" in hand_collision_name:
-                condim = 4
-            else:
-                condim = 3
+            # condim=4 for all finger-object pairs: torsional friction needed for grasping/unscrewing
+            condim = 4 if "collision_hand" in hand_collision_name else 3
             # if "left" in hand_collision_name and "right" in object_collision_name:
             #     friction = small_friction
             # elif "right" in hand_collision_name and "left" in object_collision_name:
@@ -853,6 +880,7 @@ def main(
             object_pos_kd=0,
             object_rot_kp=0,
             object_rot_kd=0,
+            free_dof_suffixes=frozenset({"rot_z"}) if free_rot_z else frozenset(),
         )
         export_file_path_act = f"{processed_dir}/../scene_act.xml"
         with open(export_file_path_act, "w") as f:

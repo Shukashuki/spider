@@ -139,6 +139,11 @@ class Config:
     vel_rew_scale: float = 0.0001
     terminal_rew_scale: float = 1.0
     contact_rew_scale: float = 0.0
+    cap_contact_rew_scale: float = 0.0  # fingertip→cap-contact-site distance reward (contact_guidance=false)
+    cap_dist_rew_scale: float = 0.0  # penalize |dist_sim_i(t) - dist_ref_i(t)| per finger per frame
+    cap_dir_rew_scale: float = 0.0   # penalize ||unit(fingertip-obj)_sim - unit(fingertip-obj)_ref|| per finger
+    knuckle_dist_rew_scale: float = 0.0  # same as cap_dist but for DIP joint (fingerX_link3 origin)
+    knuckle_dir_rew_scale: float = 0.0   # same as cap_dir but for DIP joint
     # Ablation settings
     init_ctrl_mode: str = "reference"  # "reference", "zero", or "random"
     optimizer_type: str = "mppi"  # "mppi" or "cma"
@@ -149,6 +154,7 @@ class Config:
     mppi_cma_eta_sigma: float = 0.3
     mppi_cma_jitter: float = 1e-6
     cma_ctrl_smooth_window: int = 0  # Gaussian smooth window (sim steps) on CMA ctrl output; 0=off
+    cross_tick_smooth_window: int = 0  # post-save Gaussian smooth over full trajectory; CMA modes only
 
     # === VISUALIZATION CONFIGURATION ===
     show_viewer: bool = True
@@ -171,6 +177,10 @@ class Config:
     # === CONTACT GUIDANCE (DERIVED) ===
     contact_order: list = field(default_factory=list)
     hand_contact_site_ids: list = field(default_factory=list)
+    object_contact_site_ids: list = field(default_factory=list)  # track_object_right_{finger} site IDs
+    ref_hand_mocap_ids: list = field(default_factory=list)    # mocap IDs of ref_hand_right_{finger}_tip bodies
+    ref_knuckle_mocap_ids: list = field(default_factory=list) # mocap IDs of ref_hand_right_{finger}_knuckle bodies
+    hand_knuckle_site_ids: list = field(default_factory=list) # site IDs of track_hand_right_{finger}_knuckle
     right_contact_indices: list = field(default_factory=list)
     left_contact_indices: list = field(default_factory=list)
     right_pos_ctrl_ids: list = field(default_factory=list)
@@ -286,7 +296,7 @@ def build_hand_contact_site_ids(
         if name is None:
             continue
         name_l = name.lower()
-        if "track" not in name_l or "hand" not in name_l:
+        if "track" not in name_l or "hand" not in name_l or "_tip" not in name_l:
             continue
         for idx, (side, finger) in enumerate(contact_order):
             if side in name_l and finger in name_l:
@@ -302,6 +312,25 @@ def build_hand_contact_site_ids(
             missing,
         )
     return contact_order, site_ids
+
+
+def build_object_contact_site_ids(
+    mj_model: mujoco.MjModel, embodiment_type: str
+) -> list[int | None]:
+    """Return site IDs for track_object_right/left_{finger}_tip sites (on the object body)."""
+    finger_names = ["thumb_tip", "index_tip", "middle_tip", "ring_tip", "pinky_tip"]
+    site_ids: list[int | None] = []
+    sides = []
+    if embodiment_type in ["bimanual", "right"]:
+        sides.append("right")
+    if embodiment_type in ["bimanual", "left"]:
+        sides.append("left")
+    for side in sides:
+        for fname in finger_names:
+            name = f"track_object_{side}_{fname}"
+            sid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_SITE, name)
+            site_ids.append(sid if sid >= 0 else None)
+    return site_ids
 
 
 def get_object_pos_ctrl_indices(config: Config) -> tuple[list[int], list[int]]:
@@ -495,6 +524,76 @@ def process_config(config: Config):
                 for idx, (side, finger) in enumerate(config.contact_order)
                 if side == "left" and (finger in ["thumb"])
             ]
+
+    # build object contact site ids for cap_contact_rew
+    if config.cap_contact_rew_scale > 0.0:
+        config.contact_order, config.hand_contact_site_ids = (
+            build_hand_contact_site_ids(model, config.embodiment_type)
+        )
+        config.object_contact_site_ids = build_object_contact_site_ids(
+            model, config.embodiment_type
+        )
+        loguru.logger.info(
+            "cap_contact_rew: hand_site_ids={}, obj_site_ids={}",
+            config.hand_contact_site_ids,
+            config.object_contact_site_ids,
+        )
+
+    # build ref_hand_mocap_ids for cap_dist_rew (distance-matching reward)
+    if config.cap_dist_rew_scale > 0.0:
+        if not config.hand_contact_site_ids:
+            config.contact_order, config.hand_contact_site_ids = (
+                build_hand_contact_site_ids(model, config.embodiment_type)
+            )
+        finger_names = ["thumb_tip", "index_tip", "middle_tip", "ring_tip", "pinky_tip"]
+        mocap_ids = []
+        sides = []
+        if config.embodiment_type in ["bimanual", "right"]:
+            sides.append("right")
+        if config.embodiment_type in ["bimanual", "left"]:
+            sides.append("left")
+        for side in sides:
+            for fname in finger_names:
+                bname = f"ref_hand_{side}_{fname}"
+                bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, bname)
+                if bid >= 0 and model.body_mocapid[bid] >= 0:
+                    mocap_ids.append(int(model.body_mocapid[bid]))
+        config.ref_hand_mocap_ids = mocap_ids
+        loguru.logger.info(
+            "cap_dist_rew/cap_dir_rew: ref_hand_mocap_ids={}, hand_site_ids={}",
+            config.ref_hand_mocap_ids,
+            config.hand_contact_site_ids,
+        )
+
+    # build knuckle site/mocap IDs for knuckle_dist/dir reward
+    if config.knuckle_dist_rew_scale > 0.0 or config.knuckle_dir_rew_scale > 0.0:
+        finger_names = ["thumb_tip", "index_tip", "middle_tip", "ring_tip", "pinky_tip"]
+        sides = []
+        if config.embodiment_type in ["bimanual", "right"]:
+            sides.append("right")
+        if config.embodiment_type in ["bimanual", "left"]:
+            sides.append("left")
+        knuckle_mocap_ids = []
+        knuckle_site_ids = []
+        for side in sides:
+            for fname in finger_names:
+                kname = fname.replace("_tip", "_knuckle")
+                # mocap body
+                bname = f"ref_hand_{side}_{kname}"
+                bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, bname)
+                if bid >= 0 and model.body_mocapid[bid] >= 0:
+                    knuckle_mocap_ids.append(int(model.body_mocapid[bid]))
+                # track site
+                sname = f"track_hand_{side}_{kname}"
+                sid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, sname)
+                knuckle_site_ids.append(int(sid) if sid >= 0 else None)
+        config.ref_knuckle_mocap_ids = knuckle_mocap_ids
+        config.hand_knuckle_site_ids = knuckle_site_ids
+        loguru.logger.info(
+            "knuckle_dist/dir: ref_knuckle_mocap_ids={}, knuckle_site_ids={}",
+            config.ref_knuckle_mocap_ids,
+            config.hand_knuckle_site_ids,
+        )
 
     # get noise scale
     config = compute_noise_schedule(config)

@@ -1,0 +1,51 @@
+# @package _global_
+# OakInk-v2 + Wuji Hand — contact_guidance ON, cap rot_z FREE (follower)
+# scene_act.xml: pos_x/y/z + rot_x/y actuated; rot_z is an unactuated hinge
+# → cap stays at reference position and resists tipping, but spins freely when hand turns it.
+dataset_name: oakinkv2
+task: unscrew_bottle
+robot_type: wuji_hand
+embodiment_type: right
+data_id: 0
+
+# --- contact guidance ---
+contact_guidance: true
+guidance_decay_ratio: 0.7        # actuator kp decays by 0.7x each iteration → 0 at last iter
+init_pos_actuator_gain: 50.0     # strong position hold initially
+init_pos_actuator_bias: 5.0
+init_rot_actuator_gain: 0.3      # light anti-tip (rot_x, rot_y only; rot_z has no actuator)
+init_rot_actuator_bias: 0.3
+
+# --- object tracking thresholds ---
+object_pos_threshold: 0.1        # 10 cm position drift → terminate
+object_rot_threshold: 10.0       # large value: cap can rotate freely without triggering early stop
+
+# --- reward ---
+base_pos_rew_scale: 0.1
+base_rot_rew_scale: 0.1
+rot_rew_scale: 0.0               # don't penalize cap rotation divergence (rot_z free)
+pos_rew_scale: 1.0
+
+# --- sampling ---
+temperature: 1.0
+num_samples: 512
+max_num_iterations: 16
+improvement_threshold: 0.01
+improvement_check_steps: 2
+
+# --- noise schedule ---
+first_ctrl_noise_scale: 0.2
+last_ctrl_noise_scale: 0.4
+joint_noise_scale: 0.04
+pos_noise_scale: 0.005
+rot_noise_scale: 0.005
+final_noise_scale: 0.01
+
+# --- planning horizon ---
+ctrl_dt: 0.4
+knot_dt: 0.4
+horizon: 2.4
+
+# --- physics ---
+njmax_per_env: 512
+nconmax_per_env: 200

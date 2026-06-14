@@ -1,0 +1,49 @@
+# @package _global_
+# OakInk-v2 + Wuji Hand — contact_guidance OFF, cap distance-matching reward ON
+# Reward: penalize |dist_sim_i(t) - dist_ref_i(t)| per finger, where
+#   dist_ref_i(t) = ||ref_fingertip_i_world(t) - ref_obj_pos(t)||  (from MANO IK)
+#   dist_sim_i(t) = ||sim_fingertip_i_world(t) - sim_obj_pos(t)||  (current sim)
+dataset_name: oakinkv2
+task: unscrew_bottle
+robot_type: wuji_hand
+embodiment_type: right
+data_id: 0
+
+# --- contact guidance: OFF ---
+contact_guidance: false
+
+# --- fingertip: distance + direction matching ---
+cap_dist_rew_scale: 1.0    # |dist_sim - dist_ref| per fingertip per frame
+cap_dir_rew_scale: 1.0     # ||unit(fingertip-obj)_sim - unit(fingertip-obj)_ref|| per fingertip
+
+# --- knuckle (DIP joint): distance + direction matching ---
+knuckle_dist_rew_scale: 1.0   # |dist_sim - dist_ref| per DIP joint per frame
+knuckle_dir_rew_scale: 1.0    # ||unit(knuckle-obj)_sim - unit(knuckle-obj)_ref|| per DIP joint
+
+# --- reward ---
+base_pos_rew_scale: 0.1
+base_rot_rew_scale: 0.1
+
+# --- sampling ---
+temperature: 1.0
+num_samples: 512
+max_num_iterations: 16
+improvement_threshold: 0.01
+improvement_check_steps: 2
+
+# --- noise schedule ---
+first_ctrl_noise_scale: 0.2
+last_ctrl_noise_scale: 0.4
+joint_noise_scale: 0.04
+pos_noise_scale: 0.005
+rot_noise_scale: 0.005
+final_noise_scale: 0.01
+
+# --- planning horizon ---
+ctrl_dt: 0.4
+knot_dt: 0.4
+horizon: 2.4
+
+# --- physics ---
+njmax_per_env: 512
+nconmax_per_env: 200

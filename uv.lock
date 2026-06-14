@@ -1907,7 +1907,7 @@ wheels = [
 [[package]]
 name = "oakink2-toolkit"
 version = "0.0.5"
-source = { directory = "/home/roy/externalTool/data/OakInk2" }
+source = { directory = "../../data/oakink2" }
 dependencies = [
     { name = "networkx" },
     { name = "numpy" },
@@ -2923,7 +2923,7 @@ requires-dist = [
     { name = "mujoco", specifier = "==3.7.0" },
     { name = "mujoco-warp", specifier = "==3.7.0.1" },
     { name = "numpy" },
-    { name = "oakink2-toolkit", marker = "extra == 'oakinkv2'", directory = "/home/roy/externalTool/data/OakInk2" },
+    { name = "oakink2-toolkit", marker = "extra == 'oakinkv2'", directory = "../../data/oakink2" },
     { name = "open3d" },
     { name = "opencv-python" },
     { name = "pymeshlab", specifier = "<2025" },

@@ -1,0 +1,45 @@
+# @package _global_
+# OakInk-v2 + Wuji Hand — MPPI-CMA-full (cma_dial) optimizer
+# Inherits all unset keys from oakinkv2_wuji.yaml via +override chain.
+dataset_name: oakinkv2
+task: unscrew_bottle
+robot_type: wuji_hand
+embodiment_type: right
+data_id: 0
+
+# --- optimizer ---
+optimizer_mode: cma_rank      # full-covariance CMA + rank-based weights
+cma_sigma0: 0.4               # wider initial exploration
+mppi_cma_eta_mu: 0.35         # mean EMA learning rate
+mppi_cma_eta_sigma: 0.15      # covariance EMA learning rate
+mppi_cma_jitter: 1.0e-6       # Tikhonov regulariser on Σ
+cma_ctrl_smooth_window: 35    # smooth CMA ctrl output — ~ctrl_steps per knot
+cross_tick_smooth_window: 60  # cross-tick Gaussian smooth on saved qpos (sigma=15 steps)
+
+# --- sampling ---
+temperature: 1.0
+num_samples: 512
+max_num_iterations: 32
+improvement_threshold: 0.01   # back to baseline threshold
+improvement_check_steps: 4
+
+# --- noise schedule ---
+first_ctrl_noise_scale: 0.2
+last_ctrl_noise_scale: 0.4
+joint_noise_scale: 0.04
+pos_noise_scale: 0.005
+rot_noise_scale: 0.005
+final_noise_scale: 0.01
+
+# --- planning horizon ---
+ctrl_dt: 0.4
+knot_dt: 0.4
+horizon: 2.4    # 6 knots (was 1.2 / 3 knots) — longer lookahead for smoother output
+
+# --- reward scales: rotation matters as much as position for unscrew ---
+base_pos_rew_scale: 0.1
+base_rot_rew_scale: 0.1       # was 0.03 — unscrewing is rotation-dominant
+
+# --- physics ---
+njmax_per_env: 512
+nconmax_per_env: 200

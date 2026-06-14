@@ -583,6 +583,26 @@ def main(config: Config):
         info_aggregated = {}
         for k in info_list[0].keys():
             info_aggregated[k] = np.stack([info[k] for info in info_list], axis=0)
+
+        # Cross-tick smoothing for CMA modes: smooth hand DOFs over the full trajectory
+        # to remove inter-tick discontinuities (tick-boundary jitter).
+        cross_smooth = getattr(config, "cross_tick_smooth_window", 0)
+        mode = getattr(config, "optimizer_mode", "dial")
+        if cross_smooth > 1 and mode in ("cma_rank", "cma_dial") and "qpos" in info_aggregated:
+            from scipy.ndimage import gaussian_filter1d
+            qpos_full = info_aggregated["qpos"]            # (n_ticks, ctrl_steps, nq)
+            n_ticks, ctrl_steps, nq = qpos_full.shape
+            nu = config.nu
+            flat = qpos_full.reshape(-1, nq)               # (T, nq)
+            flat[:, :nu] = gaussian_filter1d(              # smooth hand DOFs only
+                flat[:, :nu], sigma=cross_smooth / 4.0, axis=0
+            )
+            info_aggregated["qpos"] = flat.reshape(n_ticks, ctrl_steps, nq)
+            loguru.logger.info(
+                f"cross_tick_smooth: applied gaussian_filter1d sigma={cross_smooth/4:.1f} "
+                f"over {n_ticks*ctrl_steps} steps on {nu} hand DOFs"
+            )
+
         np.savez(
             f"{config.output_dir}/trajectory_mjwp{'_act' if config.contact_guidance else ''}.npz",
             **info_aggregated,

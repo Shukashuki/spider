@@ -158,10 +158,13 @@ def main(
     oakink2_prefix: str = f"{spider.ROOT}/../example_datasets/raw/oakinkv2",
     embodiment_type: str = "right",
     task: str = "pick_spoon_bowl",
+    seq_token: str | None = None,
+    rh_obj_id_override: str | None = None,
     pre_grasp_seconds: float = 1.5,
     post_grasp_seconds: float = 2.5,
     target_fps: float = 50.0,
     mano_assets_root: str | None = None,
+    floor_at_zero: bool = False,
     show_viewer: bool = True,
 ):
     """Process a raw OakInk-v2 sequence: pre_grasp_seconds before + post_grasp_seconds after grasp onset."""
@@ -175,18 +178,25 @@ def main(
     if mano_assets_root is not None:
         mano_assets_root = os.path.abspath(os.path.expanduser(mano_assets_root))
 
-    # 1. resolve task -> seq_key via the maniptrans pickle (which preserves data_path).
-    maniptrans_path = f"{dataset_dir}/raw/oakink/{task}_bimanual.pkl"
-    if not os.path.exists(maniptrans_path):
-        raise FileNotFoundError(
-            f"Maniptrans reference pickle not found: {maniptrans_path}. Available tasks: "
-            f"{sorted(p.stem.replace('_bimanual','') for p in Path(f'{dataset_dir}/raw/oakink').glob('*_bimanual.pkl'))}"
-        )
-    with open(maniptrans_path, "rb") as f:
-        mt = CPUUnpickler(f).load()
-    data_path = mt["right"]["data_path"][0]
-    seq_token = Path(data_path).stem
-    seq_key = seq_token.replace("++", "/")
+    # 1. resolve task -> seq_key: use maniptrans pickle OR --seq-token bypass.
+    if seq_token is None:
+        maniptrans_path = f"{dataset_dir}/raw/oakink/{task}_bimanual.pkl"
+        if not os.path.exists(maniptrans_path):
+            raise FileNotFoundError(
+                f"Maniptrans reference pickle not found: {maniptrans_path}. "
+                f"Use --seq-token to bypass. Available tasks: "
+                f"{sorted(p.stem.replace('_bimanual','') for p in Path(f'{dataset_dir}/raw/oakink').glob('*_bimanual.pkl'))}"
+            )
+        with open(maniptrans_path, "rb") as f:
+            mt = CPUUnpickler(f).load()
+        seq_token = Path(mt["right"]["data_path"][0]).stem
+        seq_key = seq_token.replace("++", "/")
+        rh_obj_id = mt["right"]["obj_id"][0]
+        mt_loaded = True
+    else:
+        seq_key = seq_token.replace("++", "/")
+        rh_obj_id = rh_obj_id_override  # None → resolved from program_info below
+        mt_loaded = False
 
     # 2. load raw anno_preview pickle for that sequence
     anno_path = f"{oakink2_prefix}/anno_preview/{seq_token}.pkl"
@@ -199,12 +209,6 @@ def main(
     with open(anno_path, "rb") as f:
         anno = pickle.load(f)
 
-    # 3. determine the right-hand task target object from the maniptrans pickle.
-    # This is robust: maniptrans stores the right hand's actual manipulation
-    # target in mt['right']['obj_id'], whereas program_info's first rh primitive
-    # may be a transient pre-grasp segment with the wrong (stationary) object.
-    rh_obj_id = mt["right"]["obj_id"][0]
-
     # 4. load program_info and find the first non-transient primitive where the
     # right hand actively manipulates rh_obj_id.
     pi_path = f"{oakink2_prefix}/program/program_info/{seq_token}.json"
@@ -214,6 +218,20 @@ def main(
         )
     with open(pi_path) as f:
         program_info = json.load(f)
+
+    # When no maniptrans pkl, auto-select rh_obj_id from the first rh primitive.
+    if rh_obj_id is None:
+        for _k, _v in program_info.items():
+            _objs = _v.get("obj_list_rh") or []
+            if _objs:
+                rh_obj_id = _objs[0]
+                loguru.logger.info(f"auto-selected rh_obj_id={rh_obj_id} from program_info")
+                break
+        if rh_obj_id is None:
+            raise RuntimeError(
+                f"Cannot determine rh_obj_id: no rh primitive found in {pi_path}"
+            )
+
     found = _find_grasp_primitive_for_obj(program_info, rh_obj_id, hand="rh")
     if found is None:
         raise RuntimeError(
@@ -293,17 +311,24 @@ def main(
             "21-joint skeleton."
         )
         # maniptrans pickle starts at OakInk2 mocap frame grasp_start+1.
-        mt_tips = mt["right"]["mano_joints"].numpy()        # (Nmt, 5, 3)
-        mt_wrist = mt["right"]["wrist_pos"].numpy()         # (Nmt, 3)
+        if mt_loaded:
+            mt_tips = mt["right"]["mano_joints"].numpy()    # (Nmt, 5, 3)
+            mt_wrist = mt["right"]["wrist_pos"].numpy()     # (Nmt, 3)
+        else:
+            mt_tips = None
+            mt_wrist = None
         mt_first_mocap = grasp_start + 1
         # Map each output frame to its mocap fid via stride_idx.
         out_fids = [available[k] for k in stride_idx]
         wrist_traj = np.zeros((n, 3))
         tips_traj = np.zeros((n, 5, 3))
         for k, fid in enumerate(out_fids):
-            if fid < mt_first_mocap:
+            w = anno["raw_mano"][fid]["rh__tsl"][0].numpy()
+            if mt_tips is None:
+                # no maniptrans pkl: use raw wrist; zero fingertip offset
+                tips = np.zeros((5, 3))
+            elif fid < mt_first_mocap:
                 # pre-grasp: use raw OakInk2 wrist position; rigid-attach tips
-                w = anno["raw_mano"][fid]["rh__tsl"][0].numpy()
                 tips = mt_tips[0] + (w - mt_wrist[0])
             else:
                 mt_idx = min((fid - mt_first_mocap) // 2, len(mt_wrist) - 1)
@@ -360,13 +385,17 @@ def main(
         "oakink_window": [win_start, win_end],
     }
 
-    # Mesh: prefer the maniptrans pickle's mesh path (already resolves to obj/ply on disk).
-    mt_mesh_path = mt["right"]["obj_mesh_path"][0]
-    mt_mesh_name = mt_mesh_path.split("align_ds/")[1]
-    mt_mesh_path = f"{dataset_dir}/raw/oakink/meshes/{mt_mesh_name}"
+    # Mesh: use maniptrans pickle's path when available, else look up by obj_id.
+    if mt_loaded:
+        mt_mesh_path_raw = mt["right"]["obj_mesh_path"][0]
+        mt_mesh_name = mt_mesh_path_raw.split("align_ds/")[1]
+        mt_mesh_path = f"{dataset_dir}/raw/oakink/meshes/{mt_mesh_name}"
+        mt_mesh_id = mt_mesh_name.split("/")[0]
+    else:
+        mt_mesh_path = f"{dataset_dir}/raw/oakink/meshes/{rh_obj_id}/scan.ply"
+        mt_mesh_id = rh_obj_id
     if not os.path.exists(mt_mesh_path):
         raise FileNotFoundError(f"Mesh not found: {mt_mesh_path}")
-    mt_mesh_id = mt_mesh_name.split("/")[0]
     safe_name = mt_mesh_id.replace("@", "_")
     mesh_dir = get_mesh_dir(
         dataset_dir=dataset_dir, dataset_name="oakinkv2", object_name=safe_name,
@@ -376,6 +405,11 @@ def main(
     ms.load_new_mesh(mt_mesh_path)
     ms.save_current_mesh(f"{mesh_dir}/visual.obj")
     task_info["right_object_mesh_dir"] = str(Path(mesh_dir).relative_to(dataset_dir))
+
+    # Auto-include convex dir if it already exists alongside the mesh dir
+    convex_dir = Path(mesh_dir) / "convex"
+    if convex_dir.exists():
+        task_info["right_object_convex_dir"] = str(convex_dir.relative_to(dataset_dir))
 
     task_info_path = f"{output_dir}/../task_info.json"
     with open(task_info_path, "w") as f:
@@ -462,6 +496,20 @@ def main(
     # physics and clip through the floor. In that case, skip the plate and
     # rely on the world floor alone for support.
     object_descends = obj_min_z_traj < obj_verts_world_z_frame0 - 0.02
+    # Optionally shift entire scene so object bottom sits on z=0 floor.
+    if floor_at_zero and obj_verts_world_z_frame0 != 0.0:
+        z_shift = -float(obj_verts_world_z_frame0)
+        loguru.logger.info(f"floor_at_zero: shifting all positions by z={z_shift:+.4f}m")
+        qpos_wrist_right[:, 2]    += z_shift
+        qpos_finger_right[:, :, 2] += z_shift
+        qpos_obj_right[:, 2]      += z_shift
+        qpos_wrist_left[:, 2]     += z_shift
+        qpos_finger_left[:, :, 2] += z_shift
+        if qpos_obj_left is not None:
+            qpos_obj_left[:, 2]   += z_shift
+        obj_verts_world_z_frame0   = 0.0
+        scene_min_z               += z_shift
+
     task_info["obj_first_frame_lowest_world_z"] = float(obj_verts_world_z_frame0)
     task_info["scene_lowest_world_z"] = scene_min_z
     task_info["object_descends_from_frame0"] = bool(object_descends)

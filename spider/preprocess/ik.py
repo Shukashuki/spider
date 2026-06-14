@@ -520,7 +520,7 @@ def main(
                                 cnt, qpos_idx, 3:
                             ]
                     if act_scene:
-                        nq_obj = 0
+                        nq_obj = mj_model_ik.nq - mj_model_ik.nu
                     else:
                         nq_obj = 14 if embodiment_type == "bimanual" else 7
                     qpos_diff_sum = 0.0
