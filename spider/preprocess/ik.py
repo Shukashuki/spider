@@ -185,7 +185,9 @@ def main(
     aggregate_contact: bool = True,
     z_offset: float = 0.0,
     act_scene: bool = False,
+    seed: int = 42,
 ):
+    np.random.seed(seed)
     # resolved processed directories
     dataset_dir = os.path.abspath(dataset_dir)
     processed_dir_robot = get_processed_data_dir(

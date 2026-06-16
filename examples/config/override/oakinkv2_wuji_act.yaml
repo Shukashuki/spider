@@ -49,3 +49,4 @@ horizon: 2.4
 # --- physics ---
 njmax_per_env: 512
 nconmax_per_env: 200
+seed: 42

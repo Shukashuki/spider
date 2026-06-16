@@ -23,3 +23,4 @@ rot_noise_scale: 0.005
 final_noise_scale: 0.01
 njmax_per_env: 512
 nconmax_per_env: 200
+seed: 42

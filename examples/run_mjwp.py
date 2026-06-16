@@ -197,6 +197,14 @@ def _apply_noise_mask(
 
 def main(config: Config):
     """Run the SPIDER using MuJoCo Warp backend"""
+    # fix random seed for reproducibility
+    import random, numpy as np, torch
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.seed)
+
     # process config, set defaults and derived fields
     config = process_config(config)
     if config.contact_guidance and config.improvement_threshold > 0.0:
