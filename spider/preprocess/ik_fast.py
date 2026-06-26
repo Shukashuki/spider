@@ -1,17 +1,33 @@
 """Run IK for the given hand type and mode.
 
-This is a simplified version of IK based on mink.
-No act scene, open-hand, or contact support.
+This is a simplified version of IK based on mink: a single zero-qpos seed is
+settled in two phases (wrist targets, then + fingertip targets) instead of
+SPIDER's `ik.py` random-restart search over `max_num_initial_guess` seeds.
+
+Optional features (off by default, so existing non-wuji callers are unaffected):
+- `--open-hand`: smoothly open un-contacted fingers before the MANO contact
+  frame, mirroring `ik.py`'s behavior.
+- `--act-scene`: load `scene_act.xml` (object = 6 single-axis joints) instead
+  of `scene.xml` (object = free joint). Since mink can't write a 7D pos+quat
+  target directly into 6 single-axis joint slots, the object is tracked via
+  an extra `mink.FrameTask` on its site instead of a direct qpos write — this
+  works for any underlying joint parameterization because mink solves through
+  whatever Jacobian the site has, without needing SPIDER's mocap+equality-
+  constraint apparatus.
+- contact / contact_pos recording: forward-kinematics readout of all
+  `track_*` sites into their paired `ref_*` mocap bodies, independent of how
+  qpos was solved. Needed for the cap/knuckle geometric rewards.
 
 Input: mujoco scene xml file + hand keypoints + object trajectories.
 Output: npz file which contains qpos for key frames in xml.
 
 Strategy:
-1. Frame 0: set wrist targets first, integrate many steps, then add finger
-   tip targets and integrate more steps.
+1. Frame 0: set wrist (+ object, if --act-scene) targets first, integrate
+   many steps, then add finger tip targets and integrate more steps.
 2. Subsequent frames: solve IK with all targets, integrating sim_dt steps
    for each ref_dt interval.
-3. Object qpos is set directly (no retargeting).
+3. Object qpos is set directly when the object has a free joint (no
+   --act-scene); tracked via a FrameTask when it doesn't.
 
 Author: Chaoyi Pan
 Date: 2026-03-07
@@ -101,7 +117,7 @@ def main(
     embodiment_type: str = "bimanual",
     task: str = "pick_spoon_bowl",
     show_viewer: bool = False,
-    save_video: bool = True,
+    save_video: bool = False,
     save_viser: bool = False,
     mano_assets_root: str | None = None,
     data_id: int = 0,
@@ -117,7 +133,16 @@ def main(
     finger_init_steps: int = 300,
     average_frame_size: int = 3,
     z_offset: float = 0.0,
+    act_scene: bool = False,
+    open_hand: bool = False,
+    contact_detection_step_threshold: int = 3,
+    aggregate_contact: bool = True,
+    object_pos_cost: float = 5.0,
+    object_ori_cost: float = 5.0,
+    seed: int = 42,
+    force: bool = False,
 ):
+    np.random.seed(seed)
     # Resolve directories
     dataset_dir = os.path.abspath(dataset_dir)
     processed_dir_robot = get_processed_data_dir(
@@ -137,7 +162,15 @@ def main(
         data_id=data_id,
     )
     os.makedirs(processed_dir_robot, exist_ok=True)
-    model_path = f"{processed_dir_robot}/../scene.xml"
+    suffix = "_act" if act_scene else ""
+    out_path = f"{processed_dir_robot}/trajectory_kinematic{suffix}.npz"
+    if not force and os.path.exists(out_path):
+        loguru.logger.info(f"Skipping ik_fast.py (output exists: {out_path})")
+        return
+    if act_scene:
+        model_path = f"{processed_dir_robot}/../scene_act.xml"
+    else:
+        model_path = f"{processed_dir_robot}/../scene.xml"
 
     # Load reference keypoints
     file_path = f"{processed_dir_mano}/trajectory_keypoints.npz"
@@ -148,6 +181,31 @@ def main(
     qpos_wrist_left = loaded_data["qpos_wrist_left"][start_idx:end_idx]
     qpos_obj_right = loaded_data["qpos_obj_right"][start_idx:end_idx]
     qpos_obj_left = loaded_data["qpos_obj_left"][start_idx:end_idx]
+    try:
+        contact_left = loaded_data["contact_left"][start_idx:end_idx]
+        contact_right = loaded_data["contact_right"][start_idx:end_idx]
+    except KeyError:
+        loguru.logger.warning("No contact data found, using all one")
+        contact_left = np.ones((qpos_finger_right.shape[0], 5))
+        contact_right = np.ones((qpos_finger_left.shape[0], 5))
+    contact_ref = np.concatenate([contact_right, contact_left], axis=1)
+    if aggregate_contact:
+        contact_aggregated = np.any(contact_ref, axis=-1)
+        for i in range(contact_ref.shape[1]):
+            contact_ref[:, i] = contact_aggregated
+    # first contact frame per finger (used by --open-hand): first index where
+    # contact holds for `contact_detection_step_threshold` consecutive steps
+    first_contact_frame_left = np.zeros(5) + qpos_finger_right.shape[0]
+    first_contact_frame_right = np.zeros(5) + qpos_finger_left.shape[0]
+    for j in range(5):
+        for i in range(contact_detection_step_threshold, len(contact_left)):
+            if contact_left[i - contact_detection_step_threshold : i, j].all():
+                first_contact_frame_left[j] = i
+                break
+        for i in range(contact_detection_step_threshold, len(contact_right)):
+            if contact_right[i - contact_detection_step_threshold : i, j].all():
+                first_contact_frame_right[j] = i
+                break
 
     # Build reference array: (H, num_sites, 7) where 7 = [x, y, z, qw, qx, qy, qz]
     qpos_ref = np.concatenate(
@@ -227,7 +285,9 @@ def main(
         )
 
     # Object DOF count
-    if embodiment_type == "bimanual":
+    if act_scene:
+        nq_obj = model.nq - model.nu
+    elif embodiment_type == "bimanual":
         nq_obj = 14
     elif embodiment_type in ["right", "left"]:
         nq_obj = 7
@@ -245,15 +305,18 @@ def main(
 
     wrist_sites = []
     finger_sites = []
+    object_sites = []
     if embodiment_type in ["right", "bimanual"]:
         wrist_sites.append("right_palm")
         finger_sites.extend([f"right_{f}" for f in finger_names])
+        object_sites.append("right_object")
     if embodiment_type in ["left", "bimanual"]:
         wrist_sites.append("left_palm")
         finger_sites.extend([f"left_{f}" for f in finger_names])
+        object_sites.append("left_object")
 
     # Create IK tasks
-    # Cost priority: finger_pos > wrist_pos > wrist_ori
+    # Cost priority: finger_pos > object > wrist_pos > wrist_ori
     wrist_tasks = [
         mink.FrameTask(
             frame_name=s,
@@ -276,17 +339,39 @@ def main(
         for s in finger_sites
     ]
 
+    # Object tracking: only needed as an explicit task in --act-scene, where
+    # the object has 6 single-axis joints (pos_x/y/z slides + rot_x/y/z
+    # hinges) instead of a free joint, so a direct 7D pos+quat qpos write
+    # (`set_object_qpos` below) isn't possible. A FrameTask sidesteps the
+    # parameterization mismatch entirely since mink solves through whatever
+    # Jacobian the site has.
+    object_tasks = (
+        [
+            mink.FrameTask(
+                frame_name=s,
+                frame_type="site",
+                position_cost=object_pos_cost,
+                orientation_cost=object_ori_cost,
+                lm_damping=1.0,
+            )
+            for s in object_sites
+        ]
+        if act_scene
+        else []
+    )
+
     posture_task = mink.PostureTask(model, cost=posture_cost)
     posture_task.set_target(configuration.q.copy())
 
-    tasks_wrist = [posture_task, *wrist_tasks]
-    tasks_all = [posture_task, *wrist_tasks, *finger_tasks]
+    tasks_wrist = [posture_task, *wrist_tasks, *object_tasks]
+    tasks_all = [posture_task, *wrist_tasks, *finger_tasks, *object_tasks]
 
     solver = "daqp"
     n_substeps = max(1, int(round(ref_dt / sim_dt)))
 
     # -- Helpers --
     def set_object_qpos(t):
+        """Direct qpos write — only valid when the object has a free joint."""
         if embodiment_type == "bimanual":
             data.qpos[-14:-7] = qpos_ref[t, ref_idx["right_object"]]
             data.qpos[-7:] = qpos_ref[t, ref_idx["left_object"]]
@@ -308,28 +393,153 @@ def main(
                 mink.SE3(wxyz_xyz=np.array([1.0, 0.0, 0.0, 0.0, *pos]))
             )
 
-    # -- Phase 1: Initialize wrist (frame 0) --
-    loguru.logger.info("Phase 1: Initializing wrist position...")
-    set_object_qpos(0)
-    configuration.update()
-    set_wrist_targets(0)
-    for _ in range(wrist_init_steps):
-        vel = mink.solve_ik(configuration, tasks_wrist, sim_dt, solver, damping=1e-5)
-        configuration.integrate_inplace(vel, sim_dt)
-        set_object_qpos(0)
+    def set_object_targets(t):
+        for object_task, site_name in zip(object_tasks, object_sites, strict=True):
+            pos = qpos_ref[t, ref_idx[site_name], :3]
+            quat_wxyz = qpos_ref[t, ref_idx[site_name], 3:]
+            object_task.set_target(mink.SE3(wxyz_xyz=np.concatenate([quat_wxyz, pos])))
 
-    # -- Phase 2: Add finger tips (frame 0) --
-    loguru.logger.info("Phase 2: Initializing finger positions...")
+    # -- track_*/ref_* mocap recording setup (contact_pos) --
+    # Pure forward-kinematics readout, independent of how qpos was solved:
+    # every `track_*` site has a paired `ref_*` mocap body (added by
+    # generate_xml.py / right.xml's knuckle sites); each frame we copy the
+    # track site's world position into its ref mocap body, then snapshot all
+    # ref mocap positions as that frame's contact_pos.
+    track_site_ids = []
+    for sid in range(model.nsite):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, sid)
+        if name is not None and name.startswith("track"):
+            track_site_ids.append(sid)
+    ref_mocap_ids = []
+    for sid in track_site_ids:
+        track_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, sid)
+        ref_name = track_name.replace("track", "ref")
+        mocap_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, ref_name)
+        ref_mocap_ids.append(model.body_mocapid[mocap_body_id])
+
+    contact_map = {
+        "right_thumb": 0,
+        "right_index": 1,
+        "right_middle": 2,
+        "right_ring": 3,
+        "right_pinky": 4,
+        "left_thumb": 5,
+        "left_index": 6,
+        "left_middle": 7,
+        "left_ring": 8,
+        "left_pinky": 9,
+    }
+
+    side_map = {"right": first_contact_frame_right, "left": first_contact_frame_left}
+    finger_idx_map = {"thumb": 0, "index": 1, "middle": 2, "ring": 3, "pinky": 4}
+
+    # Separate MjData used only for recording (open-hand override, contact_pos,
+    # video/viewer rendering). mink's `configuration`/`data` must always carry
+    # the *true* solved qpos forward as the warm start for the next frame, so
+    # the open-hand override must never touch it.
+    mj_data_record = mujoco.MjData(model)
+
+    def record_frame(q_solved, t):
+        q_record = q_solved.copy()
+        if open_hand:
+            for side in ["right", "left"]:
+                for finger in ["thumb", "index", "middle", "ring", "pinky"]:
+                    joint_ids = [
+                        jid
+                        for jid in range(model.njnt)
+                        if (
+                            (jn := mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, jid))
+                            is not None
+                            and side in jn
+                            and finger in jn
+                        )
+                    ]
+                    if not joint_ids:
+                        continue
+                    contact_frame = side_map[side][finger_idx_map[finger]]
+                    ratio = np.clip(t / max(contact_frame, 1), 0.0, 1.0)
+                    ratio = 1.0 - np.cos(ratio * np.pi * 0.5)
+                    for joint_idx in joint_ids:
+                        q_record[joint_idx] = (
+                            ratio * q_solved[joint_idx] + (1 - ratio) * 0.0
+                        )
+        mj_data_record.qpos[:] = q_record
+        mujoco.mj_forward(model, mj_data_record)
+        for track_site_id, mocap_id in zip(track_site_ids, ref_mocap_ids, strict=True):
+            mj_data_record.mocap_pos[mocap_id] = mj_data_record.site_xpos[
+                track_site_id
+            ].copy()
+        contact_pos_t = mj_data_record.mocap_pos.copy()
+        contact_t = np.zeros(len(track_site_ids))
+        for i, track_site_id in enumerate(track_site_ids):
+            track_site_name = mujoco.mj_id2name(
+                model, mujoco.mjtObj.mjOBJ_SITE, track_site_id
+            )
+            for k, v in contact_map.items():
+                if k in track_site_name and "object" in track_site_name:
+                    contact_t[i] = contact_ref[t, v]
+                    break
+        return q_record, contact_pos_t, contact_t
+
+    # -- Phase 1+2: settle frame 0 from a zero-qpos seed --
+    # wrist (+ object, if --act-scene) targets first, then add fingertips.
+    # Structured as a callable (returning (q, cost)) so a future multi-seed
+    # restart could call it repeatedly and keep the best result.
+    def run_phase12(q_start):
+        configuration.data.qpos[:] = q_start
+        if act_scene:
+            set_object_targets(0)
+        else:
+            set_object_qpos(0)
+        configuration.update()
+        set_wrist_targets(0)
+        posture_task.set_target(q_start)
+        for _ in range(wrist_init_steps):
+            vel = mink.solve_ik(configuration, tasks_wrist, sim_dt, solver, damping=1e-5)
+            configuration.integrate_inplace(vel, sim_dt)
+            if not act_scene:
+                set_object_qpos(0)
+
+        configuration.update()
+        set_finger_targets(0)
+        for _ in range(finger_init_steps):
+            vel = mink.solve_ik(configuration, tasks_all, sim_dt, solver, damping=1e-5)
+            configuration.integrate_inplace(vel, sim_dt)
+            if not act_scene:
+                set_object_qpos(0)
+
+        mujoco.mj_forward(model, configuration.data)
+        cost = sum(
+            w**2
+            * float(
+                np.sum(
+                    (configuration.data.site(s).xpos - qpos_ref[0, ref_idx[s], :3]) ** 2
+                )
+            )
+            for w, names in [
+                (wrist_pos_cost, wrist_sites),
+                (finger_pos_cost, finger_sites),
+                *([(object_pos_cost, object_sites)] if act_scene else []),
+            ]
+            for s in names
+        )
+        return configuration.q.copy(), cost
+
+    loguru.logger.info("Phase 1+2: Initializing wrist and finger positions...")
+    best_q, init_cost = run_phase12(np.zeros(model.nq))
+    loguru.logger.info(f"Frame-0 init cost: {init_cost:.6f}")
+    configuration.data.qpos[:] = best_q
     configuration.update()
-    set_finger_targets(0)
-    for _ in range(finger_init_steps):
-        vel = mink.solve_ik(configuration, tasks_all, sim_dt, solver, damping=1e-5)
-        configuration.integrate_inplace(vel, sim_dt)
+    if act_scene:
+        set_object_targets(0)
+    else:
         set_object_qpos(0)
 
     # -- Main IK loop --
     loguru.logger.info(f"Running IK for {num_frames} frames...")
     qpos_list = []
+    contact_pos_list = []
+    contact_list = []
     images = []
 
     if save_video:
@@ -339,14 +549,17 @@ def main(
         model.vis.global_.offheight = 480
         renderer = mujoco.Renderer(model, height=480, width=720)
 
-    run_viewer = get_viewer(show_viewer, model, data)
+    run_viewer = get_viewer(show_viewer, model, mj_data_record)
     rate_limiter = RateLimiter(1 / ref_dt)
 
     with run_viewer() as gui:
         for t in range(num_frames):
             set_wrist_targets(t)
             set_finger_targets(t)
-            set_object_qpos(t)
+            if act_scene:
+                set_object_targets(t)
+            else:
+                set_object_qpos(t)
             configuration.update()
 
             for _ in range(n_substeps):
@@ -354,19 +567,23 @@ def main(
                     configuration, tasks_all, sim_dt, solver, damping=1e-5
                 )
                 configuration.integrate_inplace(vel, sim_dt)
-                set_object_qpos(t)
+                if not act_scene:
+                    set_object_qpos(t)
 
-            qpos_list.append(configuration.q.copy())
+            q_record, contact_pos_t, contact_t = record_frame(
+                configuration.q.copy(), t
+            )
+            qpos_list.append(q_record)
+            contact_pos_list.append(contact_pos_t)
+            contact_list.append(contact_t)
 
             if save_video:
-                mujoco.mj_forward(model, data)
-                renderer.update_scene(data=data, camera="front")
+                renderer.update_scene(data=mj_data_record, camera="front")
                 images.append(renderer.render())
 
             if viser_state["enabled"]:
-                mujoco.mj_forward(model, data)
                 viser_state["log_frame"](
-                    data, sim_time=t * ref_dt,
+                    mj_data_record, sim_time=t * ref_dt,
                     viewer_body_entity_and_ids=viser_state["body_ids"],
                     show_ui=True, playback_fps=1.0 / ref_dt,
                 )
@@ -374,7 +591,6 @@ def main(
                     ref_skeleton(t)
 
             if show_viewer:
-                mujoco.mj_forward(model, data)
                 gui.sync()
                 rate_limiter.sleep()
 
@@ -382,6 +598,8 @@ def main(
                 loguru.logger.info(f"  Frame {t}/{num_frames}")
 
     qpos_list = np.array(qpos_list)
+    contact_pos_list = np.array(contact_pos_list)
+    contact_list = np.array(contact_list)
 
     # -- Post-processing: moving average filter --
     def moving_average_filter(signal_data, window_size=5):
@@ -405,8 +623,23 @@ def main(
         )
     qpos_list = qpos_list[1:]
     assert qpos_list.shape[0] == qvel_list.shape[0]
+    # contact/contact_pos were never smoothed (recorded once per raw frame);
+    # align them to qpos_list's final length by taking the matching tail.
+    contact_pos_list = contact_pos_list[-qpos_list.shape[0] :]
+    contact_list = contact_list[-qpos_list.shape[0] :]
+    assert qpos_list.shape[0] == contact_pos_list.shape[0] == contact_list.shape[0]
+
+    # Zero object free-joint velocities: IK finite-diff produces large
+    # angular-velocity artifacts (~3 rad/s) that destabilise the simulator.
+    for _obj_jname in ["right_object_joint", "left_object_joint"]:
+        _jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, _obj_jname)
+        if _jid >= 0:
+            _dofadr = model.jnt_dofadr[_jid]
+            qvel_list[:, _dofadr : _dofadr + 6] = 0.0
 
     # -- Forward rollout for validation --
+    model.opt.impratio = 1.0  # soften contacts for rollout stability
+    model.opt.integrator = mujoco.mjtIntegrator.mjINT_EULER
     mj_data_rollout = mujoco.MjData(model)
     n_rollout_substeps = max(1, int(round(ref_dt / sim_dt)))
     model.opt.timestep = ref_dt / n_rollout_substeps
@@ -415,6 +648,11 @@ def main(
     mj_data_rollout.ctrl[:] = qpos_list[0][: model.nq - nq_obj]
     for _ in range(n_rollout_substeps):
         mujoco.mj_step(model, mj_data_rollout)
+    # Reset after warm-up to undo floor-object penetration impulse, so the
+    # recorded qpos_rollout[0] below matches the state the loop continues from.
+    mj_data_rollout.qpos[:] = qpos_list[0]
+    mj_data_rollout.qvel[:] = qvel_list[0]
+    mujoco.mj_forward(model, mj_data_rollout)
     n_final = qpos_list.shape[0]
     qpos_rollout = np.zeros((n_final, model.nq))
     qpos_rollout[0] = qpos_list[0]
@@ -433,15 +671,22 @@ def main(
     if save_video:
         import imageio
 
-        video_path = f"{file_dir}/visualization_ik.mp4"
+        video_path = f"{file_dir}/visualization_ik{'_act' if act_scene else ''}.mp4"
         imageio.mimsave(video_path, images, fps=int(1 / ref_dt))
         loguru.logger.info(f"Saved video to {video_path}")
 
-    out_npz = f"{file_dir}/trajectory_kinematic.npz"
-    np.savez(out_npz, qpos=qpos_list, qvel=qvel_list, frequency=1 / ref_dt)
+    out_npz = f"{file_dir}/trajectory_kinematic{suffix}.npz"
+    np.savez(
+        out_npz,
+        qpos=qpos_list,
+        qvel=qvel_list,
+        contact=contact_list,
+        contact_pos=contact_pos_list,
+        frequency=1 / ref_dt,
+    )
     loguru.logger.info(f"Saved {out_npz}")
 
-    out_npz = f"{file_dir}/trajectory_ikrollout.npz"
+    out_npz = f"{file_dir}/trajectory_ikrollout{suffix}.npz"
     np.savez(out_npz, qpos=qpos_rollout)
     loguru.logger.info(f"Saved {out_npz}")
 
